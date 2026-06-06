@@ -1,55 +1,48 @@
-# Prerequisites
-*.d
+# Visual Studio
+/.vs
+**.sln
+**.vcxproj
+**.vcxproj.user
+**.vcxproj.filters
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+#Vscode
+/.vscode
+/.cache
 
-# Linker output
-*.ilk
-*.map
-*.exp
+#CLion
+/.idea
 
-# Precompiled Headers
-*.gch
-*.pch
+# Conan
+/dependencies
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# Build Output
+/build
+/logs
+**/bin
+**/obj
+**.csproj
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
+# qemu boot
+/qemu_bot
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+#tests
+/local_tests
 
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+# Logs
+**/logs
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+#possible additions
+/idk maybe
 
-# debug information files
-*.dwo
+# individual files
+/TODO.txt
+/CMakeUserPresets.json
+
+#MacOS specific
+**.DS_Store
+
+#build errors
+
+build_errors.md
+build_warnings.md
+

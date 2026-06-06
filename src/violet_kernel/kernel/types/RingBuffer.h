@@ -1,0 +1,146 @@
+/*******************************************************************
+ *                       VioletOS v0.0.1
+ *        Created by Ranyodh Singh Mandur - 💜 2026-2026
+ *
+ *             Licensed under the MIT License (MIT).
+ *        For more details, see the LICENSE file or visit:
+ *              https://opensource.org/licenses/MIT
+ *
+ *         VioletOS is a free open source operating system
+********************************************************************/
+#ifndef VIOLET_TYPES_RING_BUFFER_HG
+#define VIOLET_TYPES_RING_BUFFER_HG
+
+///STD
+#include <stddef.h>
+#include <stdint.h>
+
+/// VioletOS
+#include "GeneralMacros.h"
+
+#define VIOLET_RING_BUFFER_CREATE(fp_Capacity, fp_ElementSize)                                       \
+(                                                                                                       \
+    VIOLET_STATIC_ASSERT_UNSIGNED(fp_Capacity, "[Ring Buffer]: only unsigned values are valid for capacity"),                \
+    VIOLET_STATIC_ASSERT_UNSIGNED(fp_ElementSize, "[Ring Buffer]: only unsigned values are valid for element size"),                        \
+    VIOLET_ASSERT(fp_ElementSize > 0 && "Tried to create a ring buffer with a 0 element size ;w;"),  \
+    VIOLET_ASSERT(fp_Capacity > 0     && "capacity must be > 0"),                                    \
+    VIOLET_ASSERT((fp_Capacity & (fp_Capacity - 1)) == 0 && "capacity must be power of 2"),          \
+    VIOLET_IMPLEMENTATION_RingBufferCreate(fp_Capacity, fp_ElementSize)                              \
+)
+
+#define VIOLET_RING_BUFFER_WRITE(fp_RingBuffer, T)                                                   \
+(                                                                                                       \
+    VIOLET_ASSERT((fp_RingBuffer) && "Tried to pass NULL ring buffer >O<"),                          \
+    VIOLET_ASSERT((fp_RingBuffer)->Data && "Tried to pass NULL data inside ring buffer ;w;"),        \
+    ((T*)VIOLET_IMPLEMENTATION_RingBufferWrite(fp_RingBuffer))                                       \
+)
+
+#define VIOLET_RING_BUFFER_PEEK(fp_RingBuffer, T, fp_Offset)                                         \
+(                                                                                                       \
+    VIOLET_STATIC_ASSERT_UNSIGNED(fp_Offset, "[Ring Buffer]: only unsigned values are valid for ring buffer offsets"),                              \
+    VIOLET_ASSERT(fp_Offset < fp_RingBuffer.Capacity && "Index out of bounds!"),                     \
+    ((T*)VIOLET_IMPLEMENTATION_RingBufferPeek(fp_RingBuffer, fp_Offset))                             \
+)
+
+    //VIOLET_ASSERT(fp_Buffer->Head > 0 && "Can't peek an empty")  WARNING: unsure how to manage invalid elements whatever
+#define VIOLET_RING_BUFFER_PEEK_LATEST(fp_RingBuffer, T)                                             \
+(                                                                                                       \
+    ((T*)VIOLET_IMPLEMENTATION_RingBufferPeekLatest(fp_RingBuffer))                                  \
+)
+
+#define VIOLET_RING_BUFFER_GET_VALID_ELEMENT_COUNT(fp_RingBuffer)                                    \
+(                                                                                                       \
+    VIOLET_IMPLEMENTATION_RingBufferGetValidElementCount(fp_RingBuffer)                              \
+)
+
+#define VIOLET_RING_BUFFER_DESTROY(fp_RingBuffer)                                                    \
+(                                                                                                       \
+    VIOLET_ASSERT((fp_RingBuffer) && "Tried to pass NULL ring buffer"),                              \
+    VIOLET_ASSERT((fp_RingBuffer)->Data && "Tried to pass NULL data inside ring buffer ;w;"),        \
+    VIOLET_IMPLEMENTATION_RingBufferDestroy(fp_RingBuffer)                                           \
+)
+
+typedef struct{
+    void* Data;
+    size_t Capacity;
+    size_t ElementSize;
+    size_t Head;
+} VIOLET_RingBuffer;
+
+[[nodiscard]] VIOLET_FORCEINLINE VIOLET_RingBuffer
+    VIOLET_IMPLEMENTATION_RingBufferCreate
+    (
+        const size_t fp_Capacity,
+        const size_t fp_ElementSize
+    )
+{
+    VIOLET_RingBuffer f_RingBuffer;
+
+    f_RingBuffer.Capacity = fp_Capacity;
+    f_RingBuffer.ElementSize = fp_ElementSize;
+
+    // f_RingBuffer.Data = malloc(fp_Capacity*fp_ElementSize); 
+    // VIOLET_ASSERT(f_RingBuffer.Data && "[Ring Buffer]: Failed to allocate memory on creation, something really bad must've happened ;w;");
+
+    f_RingBuffer.Head = 0;
+
+    return f_RingBuffer;
+}
+
+[[nodiscard]] VIOLET_FORCEINLINE void*
+    VIOLET_IMPLEMENTATION_RingBufferWrite
+    (
+        VIOLET_RingBuffer* fp_Buffer
+    )
+{
+    void* f_Slot = (uint8_t*)fp_Buffer->Data + (fp_Buffer->Head & (fp_Buffer->Capacity - 1))*fp_Buffer->ElementSize; // bitmask wrapping
+    fp_Buffer->Head++;
+    return f_Slot; // caller writes into this directly
+}
+
+[[nodiscard]] VIOLET_FORCEINLINE void*
+    VIOLET_IMPLEMENTATION_RingBufferPeek
+    (
+        const VIOLET_RingBuffer fp_Buffer,
+        const size_t               fp_OffsetFromOldest
+    )
+{
+    // oldest element lives at Head - Capacity when buffer is full, offset 0 = oldest, offset Capacity-1 = newest
+    size_t f_Index = (fp_Buffer.Head - fp_Buffer.Capacity + fp_OffsetFromOldest) & (fp_Buffer.Capacity - 1);
+    return (uint8_t*)fp_Buffer.Data + f_Index*fp_Buffer.ElementSize;
+}
+
+[[nodiscard]] VIOLET_FORCEINLINE void*
+    VIOLET_IMPLEMENTATION_RingBufferPeekLatest
+    (
+        const VIOLET_RingBuffer fp_Buffer
+    )
+{
+    size_t f_Index = (fp_Buffer.Head - 1) & (fp_Buffer.Capacity - 1);
+    return (uint8_t*)fp_Buffer.Data + f_Index*fp_Buffer.ElementSize;
+}
+
+[[nodiscard]] VIOLET_FORCEINLINE size_t //kinda just intended if ur unsure or as a safety check for reading data on first write cycle owo 
+    VIOLET_IMPLEMENTATION_RingBufferGetValidElementCount
+    (
+        const VIOLET_RingBuffer fp_Buffer
+    )
+{
+    return fp_Buffer.Head < fp_Buffer.Capacity
+        ? fp_Buffer.Head
+        : fp_Buffer.Capacity;
+}
+
+VIOLET_FORCEINLINE void
+    VIOLET_IMPLEMENTATION_RingBufferDestroy
+    (
+        VIOLET_RingBuffer* fp_Buffer
+    )
+{
+    // free(fp_Buffer->Data);
+    fp_Buffer->Data      = NULL;
+    fp_Buffer->Head      = 0;
+    fp_Buffer->Capacity  = 0;
+}
+
+#endif /*VIOLET_TYPES_RING_BUFFER_HG*/
