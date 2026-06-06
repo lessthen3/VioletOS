@@ -23,7 +23,7 @@
 **.csproj
 
 # qemu boot
-/qemu_bot
+/qemu_boot
 
 #tests
 /local_tests
