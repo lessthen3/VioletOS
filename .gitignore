@@ -12,9 +12,6 @@
 #CLion
 /.idea
 
-# Conan
-/dependencies
-
 # Build Output
 /build
 /logs

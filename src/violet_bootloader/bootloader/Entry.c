@@ -15,37 +15,13 @@
 ///VioletShared
 #include "shared/gop/console/GopConsole.h"
 #include "shared/BootInfo.h"
+#include "shared/utils/StringConversion.h"
 
 ///VioletBootloader uwu
 #include "MemoryMap.h"
 #include "ElfLoader.h"
 #include "PageTable.h"
 #include "GopInit.h"
-
-const char* 
-    uintn_to_str(size_t value) 
-{
-    // A 64-bit integer requires at most 20 digits + 1 null terminator
-    static char buffer[21]; 
-    char* ptr = &buffer[20];
-    *ptr = '\0'; // Null terminate the string
-
-    // Special case for 0
-    if (value == 0) 
-    {
-        *--ptr = '0';
-        return ptr;
-    }
-
-    // Process digits from right to left
-    while (value > 0) 
-    {
-        *--ptr = (char)('0' + (value % 10));
-        value /= 10;
-    }
-
-    return ptr;
-}
 
 /*
     UefiMain — UEFI application entry point
@@ -84,12 +60,12 @@ EFI_STATUS EFIAPI
 
     EFI_STATUS f_Status = Violet_InitGop(fp_SystemTable, &f_BootInfo.FrameBuffer);
 
-    //////////////////////////////////////// Print something to make sure we're alive uwu ////////////////////////////////////////
-
     if (EFI_ERROR(f_Status))
     {
         return f_Status;
     }
+
+    //////////////////////////////////////// Print something to make sure we're alive uwu ////////////////////////////////////////
 
     VioletGopFrameBuffer_ClearScreen(&f_BootInfo.FrameBuffer, VIOLET_COLOUR_VIOLET);  // 💜
 
@@ -194,7 +170,7 @@ EFI_STATUS EFIAPI
         );
     }
 
-    //////////////////////////////////////// identity map the framebuffer since the it's MMIO ////////////////////////////////////////
+    //////////////////////////////////////// identity map the framebuffer since it's MMIO ////////////////////////////////////////
 
     uint64_t f_FrameBufferSize  = (uint64_t)f_BootInfo.FrameBuffer.Height * f_BootInfo.FrameBuffer.PixelsPerScanLine * 4; // size =  height * pixelsPerScanLine * 4 bytes, round up to pages
     uint64_t f_RequiredFrameBufferPages = (f_FrameBufferSize + 0xFFF) / 0x1000;
@@ -264,7 +240,7 @@ EFI_STATUS EFIAPI
 
     //////////////////////////////////////// Load the basic page tables using the inline asm for cr3 uwu
 
-    // CRITICAL: Shut off interrupts! UEFI's handlers are about to be unmapped.
+    // CRITICAL: Shut off interrupts, UEFI's handlers are about to be unmapped
     __asm__ volatile("cli");
 
     Violet_LoadCr3(f_Pml4);

@@ -16,6 +16,7 @@
 ///VioletShared
 #include "shared/BootInfo.h"
 #include "shared/gop/console/GopConsole.h"
+#include "shared/utils/StringConversion.h"
 
 /*
     these symbols are defined by violet_kernel.ld, apparently better to use an array instead.
@@ -29,7 +30,7 @@ extern uint8_t VioletTextStart[];
 extern uint8_t VioletTextEnd[];
 
 extern uint8_t VioletRodataStart[];
-extern uint8_t VioletRodataStart[];
+extern uint8_t VioletRodataEnd[];
 
 extern uint8_t VioletDataStart[];
 extern uint8_t VioletDataEnd[];
@@ -51,6 +52,21 @@ static void
     {
         fv_Ptr[lv_I] = fp_Value;
     }
+}
+
+static uint64_t 
+    VioletReadTsc(void)
+{
+    uint32_t f_Low, f_High;
+    __asm__ volatile ("rdtsc" : "=a"(f_Low), "=d"(f_High));
+    return ((uint64_t)f_High << 32) | f_Low;
+}
+
+static void 
+    VioletSleepCycles(uint64_t fp_Cycles)
+{
+    uint64_t f_Start = VioletReadTsc();
+    while (VioletReadTsc() - f_Start < fp_Cycles) { ; }
 }
 
 
@@ -84,18 +100,28 @@ void
     VioletConsole_PrintLine(&f_VioletConsole, "Hello World from the Kernel!");
     
     /*
-        TODO: accept BootInfo* parameter from bootloader once Entry.c is written
+        CHECK!: accept BootInfo* parameter from bootloader once Entry.c is written
         TODO: init PMM from memory map
         TODO: init VMM
         TODO: init GDT/IDT
         TODO: init LAPIC
         TODO: spawn root task
     */
+
+    // print these to see what you're working with
+    VioletConsole_Print(&f_VioletConsole, "FrameBuffer Width: ");
+    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.Width));
     
-    /* spin forever until we have something to actually do */
+    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.Height));
+    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.PixelsPerScanLine));
+    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.FrameBufferBase));
+    
+    size_t f_Counter = 0;
+
     for (;;)
     {
-        __asm__ volatile ("hlt");
-        ;
+        VioletSleepCycles(1'000'000'000);
+
+        VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(f_Counter++));        
     }
 }

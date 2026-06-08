@@ -18,6 +18,9 @@
 ///VioletShared
 #include "console/VioletColour.h"
 
+///VioletPosix
+// #include "kernel/sys/types.h"
+
 /*
     must only use fixed-width types here; this struct is read by the kernel
     which has no UEFI headers. no UINTN, no EFI_MEMORY_DESCRIPTOR etc.
@@ -33,7 +36,7 @@ typedef struct {
 } VioletGop_FrameBuffer;
 
 /*============================================================
-    VioletDrawPixel
+    VioletGopFrameBuffer_DrawPixel
 ==============================================================*/
 
 void 
@@ -46,7 +49,7 @@ void
     );
 
 /*============================================================
-    VioletFillRect
+    VioletGopFrameBuffer_FillRect
 ==============================================================*/
 
 void 
@@ -61,7 +64,7 @@ void
     );
 
 /*============================================================
-    VioletClearScreen
+    VioletGopFrameBuffer_ClearScreen
 ==============================================================*/
 
 void 
@@ -71,5 +74,16 @@ void
         VioletColour             fp_Colour
     );
 
+/*============================================================
+    VioletGopFrameBuffer_ShiftAllPixels
+==============================================================*/
+
+void
+    VioletGopFrameBuffer_ShiftAllPixelsVertical
+    (
+        const VioletGop_FrameBuffer* fp_FrameBuffer,
+        int                          fp_Offset,
+        VioletColour                 fp_ExposedColour
+    );
 
 #endif /*VIOLET_SHARED_GOP_FRAME_BUFFER_HG*/

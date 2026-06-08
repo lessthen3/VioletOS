@@ -11,10 +11,32 @@
 #include "GopConsole.h"
 #include "VioletFontData.h"
 
+#include "shared/GeneralMacros.h"
+
 #include <iso646.h>
 
 /*============================================================
-    VioletConsoleInit
+    Internal_ScrollIfNeeded
+==============================================================*/
+
+VIOLET_FORCEINLINE static void 
+    Internal_ScrollIfNeeded(VioletConsole* fp_Console)
+{
+    if (fp_Console->CursorY * VIOLET_FONT_HEIGHT >= fp_Console->Framebuffer->Height)
+    {
+        VioletGopFrameBuffer_ShiftAllPixelsVertical
+        (
+            fp_Console->Framebuffer,
+            -VIOLET_FONT_HEIGHT,
+            fp_Console->BackgroundColour
+        );
+
+        fp_Console->CursorY = (fp_Console->Framebuffer->Height / VIOLET_FONT_HEIGHT) - 1;
+    }
+}
+
+/*============================================================
+    VioletConsole_Create
 ==============================================================*/
 
 VioletConsole 
@@ -42,7 +64,7 @@ VioletConsole
 }
 
 /*============================================================
-    VioletConsolePutChar
+    VioletConsole_PutChar
 ==============================================================*/
 
 void 
@@ -59,6 +81,8 @@ void
         fp_Console->CursorX  = 0;
         fp_Console->CursorY += 1;
 
+        Internal_ScrollIfNeeded(fp_Console);
+
         return;
     }
 
@@ -70,12 +94,12 @@ void
     }
 
     /*
-        clamp character to printable ASCII range
+        clamp character to printable ASCII range;
         anything outside [0x20, 0x7F] we just render as space for now
     */
     uint8_t f_GlyphIndex = (uint8_t)fp_Char; //this should be safe but w/e
 
-    if (f_GlyphIndex < 0x20 || f_GlyphIndex > 0x7F)
+    if (f_GlyphIndex < 0x20 or f_GlyphIndex > 0x7F)
     {
         f_GlyphIndex = 0x20;
     }
@@ -121,14 +145,11 @@ void
         fp_Console->CursorY += 1;
     }
 
-    /*
-        TODO: scroll when CursorY * VIOLET_FONT_HEIGHT >= Framebuffer->Height
-        for now we just let it go off screen
-    */
+    Internal_ScrollIfNeeded(fp_Console);
 }
 
 /*============================================================
-    VioletConsolePrint
+    VioletConsole_Print
 ==============================================================*/
 
 void 
@@ -146,7 +167,7 @@ void
 }
 
 /*============================================================
-    VioletConsolePrintLine
+    VioletConsole_PrintLine
 ==============================================================*/
 void 
     VioletConsole_PrintLine
@@ -157,4 +178,27 @@ void
 {
     VioletConsole_Print(fp_Console, fp_String);
     VioletConsole_PutChar(fp_Console, '\n');
+}
+
+/*============================================================
+    VioletConsole_DrawBlockCursor
+==============================================================*/
+
+void 
+    VioletConsole_DrawBlockCursor
+    (
+        VioletConsole* fp_Console, 
+        VioletColour fp_Colour
+    )
+{
+    // Spleen is exactly 8 pixels wide and 16 pixels tall
+    VioletGopFrameBuffer_FillRect
+    (
+        fp_Console->Framebuffer,
+        fp_Console->CursorX * VIOLET_FONT_WIDTH,  // X pixel offset
+        fp_Console->CursorY * VIOLET_FONT_HEIGHT, // Y pixel offset
+        VIOLET_FONT_WIDTH,                        // Width of a Spleen character
+        VIOLET_FONT_HEIGHT,                       // Height of a Spleen character
+        fp_Colour
+    );
 }

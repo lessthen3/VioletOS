@@ -41,7 +41,7 @@ typedef struct {
 } VioletConsole;
 
 /*============================================================
-    VioletConsoleInit: initialise a console over a framebuffer cursor starts at (0, 0), colours default to white on black
+    VioletConsole_Create: initialise a console over a framebuffer cursor starts at (0, 0), colours default to white on black
 ==============================================================*/
 
 VioletConsole 
@@ -53,7 +53,7 @@ VioletConsole
     );
 
 /*============================================================
-    VioletConsolePutChar: draw one character at the current cursor position advances cursor, wraps at right edge, TODO: scrolls at bottom
+    VioletConsole_PutChar: draw one character at the current cursor position advances cursor, wraps at right edge, TODO: scrolls at bottom
 ==============================================================*/
 
 void 
@@ -64,7 +64,7 @@ void
     );
 
 /*============================================================
-    VioletConsolePrint: draw a null terminated string
+    VioletConsole_Print: draw a null terminated string
 ==============================================================*/
 
 void 
@@ -75,7 +75,7 @@ void
     );
 
 /*============================================================
-    VioletConsolePrintLine: draw a string followed by a newline
+    VioletConsole_PrintLine: draw a string followed by a newline
 ==============================================================*/
 
 void 
@@ -86,8 +86,14 @@ void
     );
 
 /*============================================================
-    VioletConsoleInit
+    VioletConsole_DrawBlockCursor
 ==============================================================*/
 
+void 
+    VioletConsole_DrawBlockCursor
+    (
+        VioletConsole* fp_Console, 
+        VioletColour fp_Colour
+    );
 
 #endif /*VIOLET_KERNEL_GOP_CONSOLE_HG*/

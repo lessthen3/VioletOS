@@ -8,9 +8,9 @@
  *
  *         VioletOS is a free open source operating system
 ********************************************************************/
-#ifndef VIOLET_KERNEL_HARDWARE_MEMORY_ALLOCATOR_HG
-#define VIOLET_KERNEL_HARDWARE_MEMORY_ALLOCATOR_HG
+#ifndef VIOLET_KERNEL_PHYSICAL_MEMORY_MANAGER_HG
+#define VIOLET_KERNEL_PHYSICAL_MEMORY_MANAGER_HG
 
 
 
-#endif /*VIOLET_KERNEL_HARDWARE_MEMORY_ALLOCATOR_HG*/
+#endif /*VIOLET_KERNEL_PHYSICAL_MEMORY_MANAGER_HG*/
