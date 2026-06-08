@@ -31,7 +31,7 @@
 // }
 
 static void
-    VioletMemset(void* fp_Destination, uint8_t fp_Value, uint64_t fp_Size)
+    Internal_Memset(void* fp_Destination, uint8_t fp_Value, uint64_t fp_Size)
 {
     uint8_t* f_Dst = (uint8_t*)fp_Destination;
 
@@ -42,7 +42,7 @@ static void
 }
 
 static int
-    VioletValidateElfHeader(const Elf64Header* fp_Header)
+    Internal_ValidateElfHeader(const Elf64Header* fp_Header)
 {
     if(fp_Header->Ident[0] != ELF_MAGIC_0 or fp_Header->Ident[1] != ELF_MAGIC_1 or fp_Header->Ident[2] != ELF_MAGIC_2 or fp_Header->Ident[3] != ELF_MAGIC_3)
     {
@@ -106,9 +106,9 @@ EFI_STATUS
         ----------------------------------------------------------------
             get the filesystem the bootloader itself loaded from
         ----------------------------------------------------------------
-        EFI_LOADED_IMAGE_PROTOCOL tells us which device we booted from
-        EFI_SIMPLE_FILE_SYSTEM_PROTOCOL on that device gives us filesystem access
-        this way we always read kernel.elf from the same ESP we booted from
+        EFI_LOADED_IMAGE_PROTOCOL tells us which device we booted from;
+        EFI_SIMPLE_FILE_SYSTEM_PROTOCOL on that device gives us filesystem access;
+        this way we always read violet_kernel.elf from the same ESP we booted from;
         no hardcoded device handles
     */
 
@@ -151,9 +151,8 @@ EFI_STATUS
         ----------------------------------------------------------------
         open violet_kernel.elf
         ----------------------------------------------------------------
-        EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE would allow modification
-        we only need read — EFI_FILE_MODE_READ alone
-        the filename is UCS-2 (16-bit chars) because UEFI string literals are wide
+        open in readonly mode uwu;
+        the filename is UCS-2/UTF-16 because UEFI string literals are wide
         L"violet_kernel.elf" is the correct way to write a UEFI wide string literal
     */
 
@@ -171,8 +170,8 @@ EFI_STATUS
         ----------------------------------------------------------------
         read the ELF header
         ----------------------------------------------------------------
-        read exactly sizeof(Elf64Header) bytes from the start of the file
-        UEFI Read() takes a size by pointer — it writes back how many bytes
+        read exactly sizeof(Elf64Header) bytes from the start of the file;
+        UEFI Read() takes a size by pointer, and it writes back how many bytes
         were actually read, which should match what we asked for
     */
 
@@ -188,7 +187,7 @@ EFI_STATUS
         return EFI_LOAD_ERROR;
     }
 
-    if (not VioletValidateElfHeader(&f_ElfHeader))
+    if (not Internal_ValidateElfHeader(&f_ElfHeader))
     {
         f_KernelFile->Close(f_KernelFile);
         f_RootDir->Close(f_RootDir);
@@ -199,8 +198,8 @@ EFI_STATUS
         ----------------------------------------------------------------
         read all program headers into memory
         ----------------------------------------------------------------
-        program headers start at f_ElfHeader.PhOffset in the file
-        there are f_ElfHeader.PhCount of them, each f_ElfHeader.PhEntrySize bytes
+        program headers start at f_ElfHeader.PhOffset in the file;
+        there are f_ElfHeader.PhCount of them, each f_ElfHeader.PhEntrySize bytes;
         seek to that offset by setting the file position, then read the whole table
     */
 
@@ -241,31 +240,8 @@ EFI_STATUS
         ----------------------------------------------------------------
         walk PT_LOAD segments, allocate pages, copy data
         ----------------------------------------------------------------
-        for each PT_LOAD segment:
 
-        - AllocatePages at the physical address matching the virtual address
-            (at this point we use identity mapping aka virtual == physical because
-            we haven't set up our real page tables yet. the kernel linker script
-            places everything at 0xFFFFFFFF80000000 but we load it at a lower
-            physical address and map it virtually later)
-        - ACTUALLY: we load at the VirtualAddr directly and let the kernel
-            linker script's addresses be the physical load addresses too.
-            this works because UEFI gives us a flat physical address space
-            and 0xFFFFFFFF80000000 is a valid physical address if you have enough RAM
-            — WRONG on a real machine with < 128GB RAM
-        
-        CORRECT APPROACH: load at a low physical address (e.g. 0x100000 = 1MB),
-        track the physical base, then set up page tables that map VMA → physical.
-        
-        for now: AllocatePages at VirtualAddr & 0x7FFFFFFF (strip high bit as
-        a cheap approximation). proper page table setup comes next step.
-        
-        simple approach that actually works for QEMU: just allocate at the
-        virtual address directly. QEMU's memory map has RAM at 0-256MB so
-        the high kernel addresses won't be in RAM. this will triple-fault.
-        
-        REAL approach used below: load at physical 1MB+, record the base,
-        bootloader sets up a minimal page table before jumping to kernel.
+        idek what the fuck this comment was before but that's not what we were doing LMFAO
     */
 
     uint64_t f_LoadBase = UINT64_MAX;
@@ -274,8 +250,8 @@ EFI_STATUS
     for (uint16_t lv_Index = 0; lv_Index < f_ElfHeader.ProgramHeaderCount; lv_Index++)
     {
         /*
-            walk using PhEntrySize not sizeof(Elf64ProgramHeader) — same
-            reasoning as EFI_MEMORY_DESCRIPTOR: spec allows extensions
+            walk using PhEntrySize not sizeof(Elf64ProgramHeader) because it's the same deal as EFI_MEMORY_DESCRIPTOR; 
+            the spec allows extensions because idk smth ab mb manufacturers and american megatrends and the other less relevant ones
         */
 
         Elf64ProgramHeader* f_ProgramHeader = (Elf64ProgramHeader*)((uint8_t*)f_ProgramHeaders + lv_Index*f_ElfHeader.ProgramHeaderEntrySize);
@@ -292,9 +268,8 @@ EFI_STATUS
         UINTN f_PageCount = (f_ProgramHeader->MemorySize + 0xFFF) / 0x1000;
 
         /*
-            load at p_paddr (physical address) not p_vaddr (virtual address)
-            the linker script sets p_paddr = KERNEL_LMA + section_offset
-            so each segment lands at its correct position in physical RAM starting at 2MB
+            load at p_paddr (physical address);
+            the linker script sets p_paddr = KERNEL_LMA + section_offset so each segment lands at its correct position in physical RAM starting at 2MB;
             p_vaddr is the runtime virtual address; only valid after page tables are up
         */
         EFI_PHYSICAL_ADDRESS f_PhysicalAddress = (EFI_PHYSICAL_ADDRESS)f_ProgramHeader->PhysicalAddr;
@@ -312,10 +287,10 @@ EFI_STATUS
 
         /*
             zero the entire allocated region first; 
-            handles BSS padding(the gap between FileSize and MemorySize at the end of the segment)
+            handles BSS padding aka the gap between FileSize and MemorySize at the end of the segment
         */
 
-        VioletMemset((void*)f_PhysicalAddress, 0, f_ProgramHeader->MemorySize);
+        Internal_Memset((void*)f_PhysicalAddress, 0, f_ProgramHeader->MemorySize);
 
         /*
             seek to this segment's data in the file and read FileSize bytes

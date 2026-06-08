@@ -228,7 +228,7 @@ def make_disk(fp_OutputDirectory: str) -> bool:
     f_DiskPath = os.path.join(fp_OutputDirectory, "disk.img")
 
     f_BootloaderPath = os.path.join(os.getcwd(), 'build', 'violet_bootloader', 'BOOTX64.efi')
-    f_KernelPath     = os.path.join(os.getcwd(), 'build', 'violet_kernel', 'kernel.elf')
+    f_KernelPath     = os.path.join(os.getcwd(), 'build', 'violet_kernel', 'violet_kernel.elf')
 
     log_info(f"Generating virtual hard drive at {f_DiskPath}...")
 
@@ -289,7 +289,9 @@ def create_qemu_bat(fp_OutputPath: str, fp_WaitForGdb: bool = False) -> bool:
         "    -serial stdio ^",
         "    -display gtk,zoom-to-fit=on ^",
         "    -no-reboot ^",
-        f"   -s{f_GdbFlag}",
+        "    -d int ^",
+        "    -D qemu_crash.log ^",
+        "    -M smm=off ",
         "pause",
     ]
 

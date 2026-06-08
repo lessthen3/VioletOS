@@ -8,14 +8,11 @@
  *
  *         VioletOS is a free open source operating system
 ********************************************************************/
-#ifndef VIOLET_BOOTLOADER_GOP_HG
-#define VIOLET_BOOTLOADER_GOP_HG
+#ifndef VIOLET_KERNEL_GOP_CONSOLE_HG
+#define VIOLET_KERNEL_GOP_CONSOLE_HG
 
-#include <stdint.h>
-#include <iso646.h>
-
-#include <Uefi.h>
-#include <Protocol/GraphicsOutput.h>
+#include "VioletColour.h"
+#include "shared/gop/GopFrameBuffer.h"
 
 #define VIOLET_COLOUR(fp_R, fp_G, fp_B) ((VioletColour){ .Blue = (fp_B), .Green = (fp_G), .Red = (fp_R), .Garbage = 0 })
 
@@ -36,70 +33,61 @@
 // #a41da7
 
 typedef struct {
-    uint64_t FrameBufferBase;     // physical address of pixel buffer
-    uint32_t Width;
-    uint32_t Height;
-    uint32_t PixelsPerScanLine;   // NOT always == Width — rows may be padded
-    EFI_GRAPHICS_PIXEL_FORMAT   PixelFormat;
-} VioletFrameBuffer;
-
-typedef struct {    //little endian ig
-    uint8_t Blue;
-    uint8_t Green;
-    uint8_t Red;
-    uint8_t Garbage; //mainly just padding, idk if an alpha channel can be used from uefi; memory aligned accesses babbby
-} VioletColour;
+    const VioletGop_FrameBuffer* Framebuffer;
+    uint32_t                 CursorX;
+    uint32_t                 CursorY;
+    VioletColour             ForegroundColour;
+    VioletColour             BackgroundColour;
+} VioletConsole;
 
 /*============================================================
-    VioletInitGop
+    VioletConsoleInit: initialise a console over a framebuffer cursor starts at (0, 0), colours default to white on black
 ==============================================================*/
 
-EFI_STATUS 
-    VioletInitGop
+VioletConsole 
+    VioletConsole_Create
     (
-        EFI_SYSTEM_TABLE* fp_SystemTable, 
-        VioletFrameBuffer* fp_OutFrameBuffer
+        const VioletGop_FrameBuffer* fp_Framebuffer,
+        VioletColour             fp_ForegroundColour,
+        VioletColour             fp_BackgroundColour
     );
 
-
 /*============================================================
-    VioletDrawPixel
+    VioletConsolePutChar: draw one character at the current cursor position advances cursor, wraps at right edge, TODO: scrolls at bottom
 ==============================================================*/
 
 void 
-    VioletDrawPixel
+    VioletConsole_PutChar
     (
-        const VioletFrameBuffer* fp_FrameBuffer,
-        uint32_t                 fp_X,
-        uint32_t                 fp_Y,
-        VioletColour             fp_Colour
+        VioletConsole* fp_Console,
+        char           fp_Char
     );
 
 /*============================================================
-    VioletFillRect
+    VioletConsolePrint: draw a null terminated string
 ==============================================================*/
 
 void 
-    VioletFillRect
+    VioletConsole_Print
     (
-        const VioletFrameBuffer* fp_FrameBuffer,
-        uint32_t                 fp_X,
-        uint32_t                 fp_Y,
-        uint32_t                 fp_Width,
-        uint32_t                 fp_Height,
-        VioletColour             fp_Colour
+        VioletConsole* fp_Console,
+        const char*    fp_String
     );
 
 /*============================================================
-    VioletClearScreen
+    VioletConsolePrintLine: draw a string followed by a newline
 ==============================================================*/
 
 void 
-    VioletClearScreen
+    VioletConsole_PrintLine
     (
-        const VioletFrameBuffer* fp_FrameBuffer,
-        VioletColour             fp_Colour
+        VioletConsole* fp_Console,
+        const char*    fp_String
     );
 
-#endif /*VIOLET_BOOTLOADER_GOP_HG*/
+/*============================================================
+    VioletConsoleInit
+==============================================================*/
 
+
+#endif /*VIOLET_KERNEL_GOP_CONSOLE_HG*/

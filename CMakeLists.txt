@@ -218,7 +218,7 @@ if(VIOLET_BUILD_KERNEL)
     ####################################### set the kernel output properties
 
     set_target_properties(violet_kernel PROPERTIES
-        OUTPUT_NAME "kernel"
+        OUTPUT_NAME "violet_kernel"
         SUFFIX      ".elf"
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/violet_kernel"
     )

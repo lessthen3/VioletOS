@@ -11,6 +11,41 @@
 #ifndef VIOLET_SHARED_BOOT_INFO_HG
 #define VIOLET_SHARED_BOOT_INFO_HG
 
+#include <stdint.h>
 
+///VioletShared
+#include "gop/GopFrameBuffer.h"
 
-#endif /**/
+/* 
+    This is just mirroring the EFI_MEMORY_DESCRIPTOR type from UefiSpec.h so that I don't need to
+    throw UEFI headers in the kernel uwu owo
+*/
+
+typedef struct {
+    uint32_t Type;
+
+    uint64_t PhysicalStart;
+    uint64_t VirtualStart;
+
+    uint64_t NumberOfPages;
+
+    uint64_t Attribute;                
+} VioletBoot_MemoryDescriptor;
+
+typedef struct {
+    uint8_t* Descriptors;        /* array of descriptors */
+
+    uint64_t                     MapSize;   
+    uint64_t                     DescriptorCount;   
+    uint64_t                     MapKey;    
+
+    uint64_t                     DescriptorSize;  // size of ONE descriptor, NOT sizeof(EFI_MEMORY_DESCRIPTOR)! UEFI can extend this struct, always use the returned size to walk the array
+    uint32_t                     DescriptorVersion; // >w<
+} VioletBoot_MemoryMap;
+
+typedef struct {
+    VioletGop_FrameBuffer   FrameBuffer;
+    VioletBoot_MemoryMap    MemoryMap;
+} VioletBoot_Info;
+
+#endif /*VIOLET_SHARED_BOOT_INFO_HG*/

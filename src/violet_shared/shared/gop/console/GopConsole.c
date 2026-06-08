@@ -11,6 +11,8 @@
 #include "GopConsole.h"
 #include "VioletFontData.h"
 
+#include <iso646.h>
+
 /*============================================================
     VioletConsoleInit
 ==============================================================*/
@@ -18,7 +20,7 @@
 VioletConsole 
     VioletConsole_Create
     (
-        const VioletFrameBuffer* fp_FrameBuffer,
+        const VioletGop_FrameBuffer* fp_FrameBuffer,
         VioletColour             fp_ForegroundColour,
         VioletColour             fp_BackgroundColour
     )
@@ -50,18 +52,20 @@ void
         char           fp_Char
     )
 {
-    const VioletFrameBuffer* f_Framebuffer = fp_Console->Framebuffer;
+    const VioletGop_FrameBuffer* f_Framebuffer = fp_Console->Framebuffer;
 
     if (fp_Char == '\n')
     {
         fp_Console->CursorX  = 0;
         fp_Console->CursorY += 1;
+
         return;
     }
 
     if (fp_Char == '\r')
     {
         fp_Console->CursorX = 0;
+        
         return;
     }
 
@@ -106,7 +110,7 @@ void
         }
     }
 
-    /* advance cursor — wrap at right edge */
+    /* advance cursor, wrap at right edge */
     fp_Console->CursorX += 1;
 
     uint32_t f_ColumnsPerRow = f_Framebuffer->Width / VIOLET_FONT_WIDTH;

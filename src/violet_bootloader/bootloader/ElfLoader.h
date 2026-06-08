@@ -18,7 +18,7 @@
 #include <Uefi.h>
 
 /// VioletOS
-#include "shared/console/GopConsole.h"
+#include "shared/gop/console/GopConsole.h"
 
 /*
     describes first 64 bytes of any 64-bit ELF file;
@@ -75,8 +75,7 @@ typedef struct {
     EntryPoint: virtual address of KernelMain, cast to function pointer and called after ExitBootServices + page table setup
 */
 
-typedef struct
-{
+typedef struct {
     uint64_t EntryPoint;    /* e_entry from ELF header — where to jump */
     uint64_t LoadBase;      /* lowest physical address we loaded any segment to */
     uint64_t LoadEnd;       /* highest physical address used — for PMM to avoid */

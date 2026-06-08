@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 /// VioletOS
-#include "GeneralMacros.h"
+#include "shared/GeneralMacros.h"
 
 #define VIOLET_RING_BUFFER_CREATE(fp_Capacity, fp_ElementSize)                                       \
 (                                                                                                       \
