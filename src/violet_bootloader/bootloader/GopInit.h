@@ -48,7 +48,8 @@ EFI_STATUS
         return f_Status;
     }
 
-    // use whatever mode is already set — can query/set modes later
+    // use whatever mode is already set, can query and set modes later
+    
     fp_OutFrameBuffer->FrameBufferBase    = f_Gop->Mode->FrameBufferBase;
     fp_OutFrameBuffer->Width              = f_Gop->Mode->Info->HorizontalResolution;
     fp_OutFrameBuffer->Height             = f_Gop->Mode->Info->VerticalResolution;

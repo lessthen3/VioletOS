@@ -22,12 +22,14 @@ typedef struct {
     UINT32                 DescriptorVersion; // >w<
 } VioletMemoryMap;
 
+VioletMemoryMap 
+    VioletMemoryMap_CreateEmpty();
 
 UINTN 
-    VioletMemoryMap_CountUsablePages(const VioletMemoryMap* fp_Map);
+    VioletMemoryMap_CountUsablePages(const VioletMemoryMap* fp_MemoryMap);
 
-VioletMemoryMap 
-    VioletMemoryMap_CreateEmpty(void);
+UINTN
+    VioletMemoryMap_GetHighestPhysicalAddress(const VioletMemoryMap* fp_MemoryMap);
 
 #endif /*VIOLET_BOOTLOADER_MEMORY_MAP_HG*/
 

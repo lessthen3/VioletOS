@@ -11,7 +11,7 @@
 #ifndef VIOLET_KERNEL_PANIC_HG
 #define VIOLET_KERNEL_PANIC_HG
 
-#include "GeneralMacros.h"
+#include "shared/gop/GopFrameBuffer.h"
 
 /*
     forward declare — implemented in Panic.c once we have serial/framebuffer output
@@ -20,15 +20,19 @@
     and doesnt warn about missing returns in functions that call this
 */
 
+void 
+    VioletPanic_Init(VioletGop_FrameBuffer* fp_FrameBuffer);
+
 [[noreturn]] void 
     VioletPanicExit
     (
         const char* fp_Condition, 
-        const char* fp_Message
+        const char* fp_Message,
+        const char* fp_Location
     );
 
 
-#define VIOLET_PANIC_IF(fp_Condition, fp_Message) (VIOLET_UNLIKELY(fp_Condition) ? VioletPanicExit(#fp_Condition, fp_Message) : (void)0)
+#define VIOLET_PANIC_IF(fp_Condition, fp_Message) (VIOLET_UNLIKELY(fp_Condition) ? VioletPanicExit(#fp_Condition, fp_Message, VIOLET_FILENAME) : (void)0)
 
 /*
     VIOLET_ASSERT — debug-only panic, stripped in release builds

@@ -82,7 +82,7 @@ EFI_STATUS
         EFI_HANDLE          fp_ImageHandle,
         EFI_SYSTEM_TABLE*   fp_SystemTable,
         VioletLoadedKernel* fp_OutKernel,
-        VioletConsole*     fp_VioletConsole
+        VioletGop_Console*     fp_VioletConsole
     )
 {
     if(not fp_VioletConsole)

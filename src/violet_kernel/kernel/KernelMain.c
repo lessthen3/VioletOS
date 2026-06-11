@@ -17,6 +17,12 @@
 #include "shared/BootInfo.h"
 #include "shared/gop/console/GopConsole.h"
 #include "shared/utils/StringConversion.h"
+#include "shared/arch/Sleep.h"
+
+///VioletKernel
+#include "VioletPanic.h"
+#include "kernel/memory/PhysicalMemoryManager.h"
+#include "kernel/vklib/memset.h"
 
 /*
     these symbols are defined by violet_kernel.ld, apparently better to use an array instead.
@@ -39,36 +45,7 @@ extern uint8_t VioletBssStart[];
 extern uint8_t VioletBssEnd[];
 
 extern uint8_t VioletKernelEnd[];
-
-/*
-    VioletMemset: needed since we don't got libc
-*/
-static void 
-    VioletMemset(void* fp_Destination, uint8_t fp_Value, size_t fp_Size)
-{
-    uint8_t* fv_Ptr = (uint8_t*)fp_Destination;
-
-    for (size_t lv_I = 0; lv_I < fp_Size; lv_I++)
-    {
-        fv_Ptr[lv_I] = fp_Value;
-    }
-}
-
-static uint64_t 
-    VioletReadTsc(void)
-{
-    uint32_t f_Low, f_High;
-    __asm__ volatile ("rdtsc" : "=a"(f_Low), "=d"(f_High));
-    return ((uint64_t)f_High << 32) | f_Low;
-}
-
-static void 
-    VioletSleepCycles(uint64_t fp_Cycles)
-{
-    uint64_t f_Start = VioletReadTsc();
-    while (VioletReadTsc() - f_Start < fp_Cycles) { ; }
-}
-
+extern uint8_t VioletKernelPhysicalEnd[];
 
 /*
     KernelMain: the kernel entry point
@@ -83,45 +60,54 @@ static void
     this guarantees KernelMain is at the ELF entry point address
 */
 
-__attribute__((section(".text.boot")))
-void 
-    KernelMain(VioletBoot_Info* fp_BootInfo)
-{
-    /*
-        FIRST THING: zero the BSS segment;
-        crt0 doesnt exist so nobody else will do this;
-        all uninitialized globals are garbage until we do this
-    */
-    VioletMemset(VioletBssStart, 0, (size_t)(VioletBssEnd - VioletBssStart));
-
-    VioletGopFrameBuffer_ClearScreen(&fp_BootInfo->FrameBuffer, VIOLET_COLOUR_GREEN);  // owo
-
-    VioletConsole f_VioletConsole = VioletConsole_Create(&fp_BootInfo->FrameBuffer, VIOLET_COLOUR_WHITE, VIOLET_COLOUR_VIOLET);
-    VioletConsole_PrintLine(&f_VioletConsole, "Hello World from the Kernel!");
-    
     /*
         CHECK!: accept BootInfo* parameter from bootloader once Entry.c is written
-        TODO: init PMM from memory map
+        CHECK!: init PMM from memory map
         TODO: init VMM
         TODO: init GDT/IDT
         TODO: init LAPIC
         TODO: spawn root task
     */
 
-    // print these to see what you're working with
-    VioletConsole_Print(&f_VioletConsole, "FrameBuffer Width: ");
-    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.Width));
-    
-    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.Height));
-    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.PixelsPerScanLine));
-    VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->FrameBuffer.FrameBufferBase));
-    
+__attribute__((section(".text.boot")))
+void 
+    KernelMain(VioletBoot_Info* fp_BootInfo)
+{
+    //////////////////////////////////////// FIRST THING: zero the BSS segment ////////////////////////////////////////
+    /*
+        crt0 doesnt exist so nobody else will do this, so all uninitialized globals are garbage until we do this
+    */
+    memset_as_u8(VioletBssStart, 0, (size_t)(VioletBssEnd - VioletBssStart));
+
+    //////////////////////////////////////// Pass GOP framebuffer we got from the bootloader so we can panic safely with some info ////////////////////////////////////////
+
+    VioletPanic_Init(&fp_BootInfo->FrameBuffer);
+
+    //////////////////////////////////////// Initialize the PMM using the memory map from the bootloader ////////////////////////////////////////
+
+    VioletPmm_Init(fp_BootInfo, (phys_addr_t)VioletKernelPhysicalEnd);
+
+    //////////////////////////////////////// Setup a console for now until we have a DE ////////////////////////////////////////
+
+    VioletGopFrameBuffer_ClearScreen(&fp_BootInfo->FrameBuffer, VIOLET_COLOUR_GREEN);  // owo
+
+    VioletGop_Console f_VioletConsole = VioletGopConsole_Create(&fp_BootInfo->FrameBuffer, VIOLET_COLOUR_WHITE, VIOLET_COLOUR_VIOLET);
+    VioletGopConsole_PrintLine(&f_VioletConsole, "Hello World from the Kernel!");
+
+    //////////////////////////////////////////////////////////////////////////////// Random Testing Stuff ////////////////////////////////////////////////////////////////////////////////
+
+    // VIOLET_SLEEP_FOR_CYCLES(10'000'000'000);
+
+    // VIOLET_PANIC_IF(true, "Test UwU!");
+
+    //////////////////////////////////////// Kernel Main Loop ////////////////////////////////////////
+
     size_t f_Counter = 0;
 
     for (;;)
     {
-        VioletSleepCycles(1'000'000'000);
+        VIOLET_SLEEP_FOR_CYCLES(1'000'000'000);
 
-        VioletConsole_PrintLine(&f_VioletConsole, uintn_to_str(f_Counter++));        
+        VioletGopConsole_PrintLine(&f_VioletConsole, uintn_to_str(f_Counter++));        
     }
 }

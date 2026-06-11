@@ -21,7 +21,7 @@
     uintn_to_str(size_t value) 
 {
     // A 64-bit integer requires at most 20 digits + 1 null terminator
-    static char buffer[21]; 
+    char buffer[21]; 
     char* ptr = &buffer[20];
     *ptr = '\0'; // Null terminate the string
 

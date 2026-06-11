@@ -46,6 +46,11 @@ typedef struct {
 typedef struct {
     VioletGop_FrameBuffer   FrameBuffer;
     VioletBoot_MemoryMap    MemoryMap;
+
+    uint64_t                BitmapPhysicalAddress; // where bootloader mapped pages for the bitmap
+    uint64_t                BitmapSizeBytes;       // how big it is
+
+    uint64_t                TotalPageCount;
 } VioletBoot_Info;
 
 #endif /*VIOLET_SHARED_BOOT_INFO_HG*/

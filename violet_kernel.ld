@@ -69,6 +69,7 @@ SECTIONS
         so it doesnt hand those pages out as free memory
     */
     VioletKernelEnd = ALIGN(4096);
+    VioletKernelPhysicalEnd = VioletKernelEnd - 0xFFFFFFFF80000000 + 0x200000;
 
     /*
         clang emits these even with -ffreestanding so we needa strip them

@@ -19,7 +19,7 @@
     AllocatePages returns 4KB-aligned pages by definition
 */
 static uint64_t 
-    VioletInternal_AllocateZeroedPage(EFI_SYSTEM_TABLE* fp_SystemTable)
+    Internal_AllocateZeroedPage(EFI_SYSTEM_TABLE* fp_SystemTable)
 {
     EFI_PHYSICAL_ADDRESS f_Page = 0;
 
@@ -49,25 +49,25 @@ static uint64_t
     each index is 9 bits, positioned differently per level
 */
 static uint64_t 
-    VioletInternal_Pml4Index(uint64_t fp_VirtualAddress) 
+    Internal_Pml4Index(uint64_t fp_VirtualAddress) 
 { 
     return (fp_VirtualAddress >> 39) & 0x1FF; 
 }
 
 static uint64_t 
-    VioletInternal_PdptIndex(uint64_t fp_VirtualAddress) 
+    Internal_PdptIndex(uint64_t fp_VirtualAddress) 
 { 
     return (fp_VirtualAddress >> 30) & 0x1FF; 
 }
 
 static uint64_t 
-    VioletInternal_PdIndex(uint64_t fp_VirtualAddress) 
+    Internal_PdIndex(uint64_t fp_VirtualAddress) 
 { 
     return (fp_VirtualAddress >> 21) & 0x1FF; 
 }
 
 static uint64_t 
-    VioletInternal_PtIndex(uint64_t fp_VirtualAddress) 
+    Internal_PtIndex(uint64_t fp_VirtualAddress) 
 { 
     return (fp_VirtualAddress >> 12) & 0x1FF; 
 }
@@ -88,12 +88,12 @@ EFI_STATUS
     )
 {
     uint64_t* f_Pml4Table = (uint64_t*)fp_Pml4;
-    uint64_t  f_Pml4Idx   = VioletInternal_Pml4Index(fp_VirtualAddress);
+    uint64_t  f_Pml4Idx   = Internal_Pml4Index(fp_VirtualAddress);
 
     /* get or create PDPT */
     if (not (f_Pml4Table[f_Pml4Idx] & PAGE_TABLE_ENTRY_PRESENT))
     {
-        uint64_t f_NewPdpt = VioletInternal_AllocateZeroedPage(fp_SystemTable);
+        uint64_t f_NewPdpt = Internal_AllocateZeroedPage(fp_SystemTable);
 
         if (f_NewPdpt == 0)
         {
@@ -104,12 +104,12 @@ EFI_STATUS
     }
 
     uint64_t* f_PdptTable = (uint64_t*)(f_Pml4Table[f_Pml4Idx] & ~0xFFFULL);
-    uint64_t  f_PdptIdx   = VioletInternal_PdptIndex(fp_VirtualAddress);
+    uint64_t  f_PdptIdx   = Internal_PdptIndex(fp_VirtualAddress);
 
     /* get or create PD */
     if (not (f_PdptTable[f_PdptIdx] & PAGE_TABLE_ENTRY_PRESENT))
     {
-        uint64_t f_NewPd = VioletInternal_AllocateZeroedPage(fp_SystemTable);
+        uint64_t f_NewPd = Internal_AllocateZeroedPage(fp_SystemTable);
 
         if (f_NewPd == 0)
         {
@@ -120,12 +120,12 @@ EFI_STATUS
     }
 
     uint64_t* f_PdTable = (uint64_t*)(f_PdptTable[f_PdptIdx] & ~0xFFFULL);
-    uint64_t  f_PdIdx   = VioletInternal_PdIndex(fp_VirtualAddress);
+    uint64_t  f_PdIdx   = Internal_PdIndex(fp_VirtualAddress);
 
     /* get or create PT */
     if (not (f_PdTable[f_PdIdx] & PAGE_TABLE_ENTRY_PRESENT))
     {
-        uint64_t f_NewPt = VioletInternal_AllocateZeroedPage(fp_SystemTable);
+        uint64_t f_NewPt = Internal_AllocateZeroedPage(fp_SystemTable);
 
         if (f_NewPt == 0)
         {
@@ -136,7 +136,7 @@ EFI_STATUS
     }
 
     uint64_t* f_PtTable = (uint64_t*)(f_PdTable[f_PdIdx] & ~0xFFFULL);
-    uint64_t  f_PtIdx   = VioletInternal_PtIndex(fp_VirtualAddress);
+    uint64_t  f_PtIdx   = Internal_PtIndex(fp_VirtualAddress);
 
     /* write the final mapping */
     f_PtTable[f_PtIdx] = fp_PhysicalAddress | fp_Flags;
@@ -158,7 +158,7 @@ uint64_t
     )
 {
     /* allocate the root PML4 table */
-    uint64_t f_Pml4 = VioletInternal_AllocateZeroedPage(fp_SystemTable);
+    uint64_t f_Pml4 = Internal_AllocateZeroedPage(fp_SystemTable);
 
     if (f_Pml4 == 0)
     {
@@ -167,25 +167,24 @@ uint64_t
 
     /*
         map each kernel page: VMA + offset → physical + offset
-        .text gets PAGE_TABLE_ENTRY_PRESENT (no PAGE_TABLE_ENTRY_WRITABLE, no PAGE_TABLE_ENTRY_NO_EXECUTE — executable read-only)
+        .text gets PAGE_TABLE_ENTRY_PRESENT (no PAGE_TABLE_ENTRY_WRITABLE, no PAGE_TABLE_ENTRY_NO_EXECUTE so it's executable read-only)
         for simplicity we map everything writable+executable here
         the kernel's VMM will rebuild proper permission maps later
     */
     for (uint64_t lv_Page = 0; lv_Page < fp_KernelPageCount; lv_Page++)
     {
-        uint64_t f_VirtualAddress = fp_KernelVirtualBase + lv_Page*0x1000;
-        uint64_t f_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*0x1000;
+        uint64_t fv_VirtualAddress = fp_KernelVirtualBase + lv_Page*0x1000;
+        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*0x1000;
 
-        EFI_STATUS f_Status = Violet_MapPage
+        EFI_STATUS fv_Status = Violet_MapPage
         (
             fp_SystemTable,
             f_Pml4,
-            f_VirtualAddress,
-            f_PhysicalAddress,
+            fv_VirtualAddress, fv_PhysicalAddress,
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
 
-        if (EFI_ERROR(f_Status))
+        if (EFI_ERROR(fv_Status))
         {
             return 0;
         }
@@ -201,18 +200,17 @@ uint64_t
     */
     for (uint64_t lv_Page = 0; lv_Page < fp_KernelPageCount; lv_Page++)
     {
-        uint64_t f_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*0x1000;
+        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*0x1000;
 
-        EFI_STATUS f_Status = Violet_MapPage
+        EFI_STATUS fv_Status = Violet_MapPage
         (
             fp_SystemTable,
             f_Pml4,
-            f_PhysicalAddress,   /* virtual == physical for identity map */
-            f_PhysicalAddress,
+            fv_PhysicalAddress, fv_PhysicalAddress,  //identity mapped uwu
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
 
-        if (EFI_ERROR(f_Status))
+        if (EFI_ERROR(fv_Status))
         {
             return 0;
         }

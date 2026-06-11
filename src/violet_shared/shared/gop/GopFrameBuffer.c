@@ -20,7 +20,7 @@ void
         const VioletGop_FrameBuffer* fp_FrameBuffer,
         uint32_t                 fp_X,
         uint32_t                 fp_Y,
-        VioletColour             fp_Colour
+        VioletGop_Colour             fp_Colour
     )
 {
     if(not fp_FrameBuffer)
@@ -51,7 +51,7 @@ void
         uint32_t                 fp_Y,
         uint32_t                 fp_Width,
         uint32_t                 fp_Height,
-        VioletColour             fp_Colour
+        VioletGop_Colour             fp_Colour
     )
 {
     if(not fp_FrameBuffer) //unlikely here uwu
@@ -108,7 +108,7 @@ void
     VioletGopFrameBuffer_ClearScreen
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
-        VioletColour             fp_Colour
+        VioletGop_Colour             fp_Colour
     )
 {
     VioletGopFrameBuffer_FillRect(fp_FrameBuffer, 0, 0, fp_FrameBuffer->Width, fp_FrameBuffer->Height, fp_Colour);
@@ -124,7 +124,7 @@ void
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
         int                          fp_Offset,
-        VioletColour                 fp_ExposedColour
+        VioletGop_Colour                 fp_ExposedColour
     )
 {
     if (not fp_FrameBuffer or fp_Offset == 0)

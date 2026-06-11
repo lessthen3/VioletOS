@@ -16,15 +16,12 @@
 #include <iso646.h>
 
 ///VioletShared
-#include "console/VioletColour.h"
-
-///VioletPosix
-// #include "kernel/sys/types.h"
+#include "VioletColour.h"
 
 /*
-    must only use fixed-width types here; this struct is read by the kernel
-    which has no UEFI headers. no UINTN, no EFI_MEMORY_DESCRIPTOR etc.
-    everything must be plain C types that mean the same thing in both contexts.
+    must only use fixed-width types here; 
+    this struct is read by the kernel which has no UEFI headers, so no UINTN, no EFI_MEMORY_DESCRIPTOR, etc;
+    everything must be plain C types that mean the same thing in both contexts
 */
 
 typedef struct {
@@ -43,9 +40,9 @@ void
     VioletGopFrameBuffer_DrawPixel
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
-        uint32_t                 fp_X,
-        uint32_t                 fp_Y,
-        VioletColour             fp_Colour
+        uint32_t                     fp_X,
+        uint32_t                     fp_Y,
+        VioletGop_Colour             fp_Colour
     );
 
 /*============================================================
@@ -56,11 +53,11 @@ void
     VioletGopFrameBuffer_FillRect
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
-        uint32_t                 fp_X,
-        uint32_t                 fp_Y,
-        uint32_t                 fp_Width,
-        uint32_t                 fp_Height,
-        VioletColour             fp_Colour
+        uint32_t                     fp_X,
+        uint32_t                     fp_Y,
+        uint32_t                     fp_Width,
+        uint32_t                     fp_Height,
+        VioletGop_Colour             fp_Colour
     );
 
 /*============================================================
@@ -71,7 +68,7 @@ void
     VioletGopFrameBuffer_ClearScreen
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
-        VioletColour             fp_Colour
+        VioletGop_Colour             fp_Colour
     );
 
 /*============================================================
@@ -83,7 +80,7 @@ void
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
         int                          fp_Offset,
-        VioletColour                 fp_ExposedColour
+        VioletGop_Colour             fp_ExposedColour
     );
 
 #endif /*VIOLET_SHARED_GOP_FRAME_BUFFER_HG*/

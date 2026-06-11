@@ -8,17 +8,20 @@
  *
  *         VioletOS is a free open source operating system
 ********************************************************************/
-#ifndef VIOLET_SHARED_VIOLET_COLOUR_HG
-#define VIOLET_SHARED_VIOLET_COLOUR_HG
+#include <stddef.h>
 
-#include <stdint.h>
-
-typedef struct {    //little endian ig
-    uint8_t Blue;
-    uint8_t Green;
-    uint8_t Red;
-    uint8_t Garbage; //mainly just padding, idk if an alpha channel can be used from uefi; memory aligned accesses babbby
-} VioletColour;
-
-
-#endif /*VIOLET_SHARED_VIOLET_COLOUR_HG*/
+void* 
+    strrchr(const char* fp_Str, int fp_Char)
+{
+    const char* f_Last = NULL;
+    
+    // Scan the entire string including the null terminator
+    do {
+        if (*fp_Str == (char)fp_Char) 
+        {
+            f_Last = fp_Str;
+        }
+    } while (*fp_Str++);
+    
+    return (void*)f_Last;
+}

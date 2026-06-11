@@ -20,7 +20,7 @@
 ==============================================================*/
 
 VIOLET_FORCEINLINE static void 
-    Internal_ScrollIfNeeded(VioletConsole* fp_Console)
+    Internal_ScrollIfNeeded(VioletGop_Console* fp_Console)
 {
     if (fp_Console->CursorY * VIOLET_FONT_HEIGHT >= fp_Console->Framebuffer->Height)
     {
@@ -36,15 +36,15 @@ VIOLET_FORCEINLINE static void
 }
 
 /*============================================================
-    VioletConsole_Create
+    VioletGopConsole_Create
 ==============================================================*/
 
-VioletConsole 
-    VioletConsole_Create
+VioletGop_Console 
+    VioletGopConsole_Create
     (
         const VioletGop_FrameBuffer* fp_FrameBuffer,
-        VioletColour             fp_ForegroundColour,
-        VioletColour             fp_BackgroundColour
+        VioletGop_Colour             fp_ForegroundColour,
+        VioletGop_Colour             fp_BackgroundColour
     )
 {
     if(not fp_FrameBuffer)
@@ -52,7 +52,7 @@ VioletConsole
         //TODO_ERROR
     }
 
-    VioletConsole f_VioletConsole;
+    VioletGop_Console f_VioletConsole;
 
     f_VioletConsole.Framebuffer        = fp_FrameBuffer;
     f_VioletConsole.CursorX            = 0;
@@ -64,13 +64,13 @@ VioletConsole
 }
 
 /*============================================================
-    VioletConsole_PutChar
+    VioletGopConsole_PutChar
 ==============================================================*/
 
 void 
-    VioletConsole_PutChar
+    VioletGopConsole_PutChar
     (
-        VioletConsole* fp_Console,
+        VioletGop_Console* fp_Console,
         char           fp_Char
     )
 {
@@ -85,11 +85,24 @@ void
 
         return;
     }
-
-    if (fp_Char == '\r')
+    else if (fp_Char == '\r')
     {
         fp_Console->CursorX = 0;
         
+        return;
+    }
+    else if(fp_Char == '\t')
+    {
+        fp_Console->CursorX += 4;
+
+        if (fp_Console->CursorX >= f_Framebuffer->Width / VIOLET_FONT_WIDTH)
+        {
+            fp_Console->CursorX  = 0;
+            fp_Console->CursorY += 1;
+        }
+
+        Internal_ScrollIfNeeded(fp_Console);
+
         return;
     }
 
@@ -149,46 +162,46 @@ void
 }
 
 /*============================================================
-    VioletConsole_Print
+    VioletGopConsole_Print
 ==============================================================*/
 
 void 
-    VioletConsole_Print
+    VioletGopConsole_Print
     (
-        VioletConsole* fp_Console,
+        VioletGop_Console* fp_Console,
         const char*    fp_String
     )
 {
     while (*fp_String != '\0')
     {
-        VioletConsole_PutChar(fp_Console, *fp_String);
+        VioletGopConsole_PutChar(fp_Console, *fp_String);
         fp_String++;
     }
 }
 
 /*============================================================
-    VioletConsole_PrintLine
+    VioletGopConsole_PrintLine
 ==============================================================*/
 void 
-    VioletConsole_PrintLine
+    VioletGopConsole_PrintLine
     (
-        VioletConsole* fp_Console,
+        VioletGop_Console* fp_Console,
         const char*    fp_String
     )
 {
-    VioletConsole_Print(fp_Console, fp_String);
-    VioletConsole_PutChar(fp_Console, '\n');
+    VioletGopConsole_Print(fp_Console, fp_String);
+    VioletGopConsole_PutChar(fp_Console, '\n');
 }
 
 /*============================================================
-    VioletConsole_DrawBlockCursor
+    VioletGopConsole_DrawBlockCursor
 ==============================================================*/
 
 void 
-    VioletConsole_DrawBlockCursor
+    VioletGopConsole_DrawBlockCursor
     (
-        VioletConsole* fp_Console, 
-        VioletColour fp_Colour
+        VioletGop_Console* fp_Console, 
+        VioletGop_Colour fp_Colour
     )
 {
     // Spleen is exactly 8 pixels wide and 16 pixels tall
