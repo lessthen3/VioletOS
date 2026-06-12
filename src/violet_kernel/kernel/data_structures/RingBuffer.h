@@ -67,7 +67,7 @@ typedef struct{
     size_t Head;
 } VIOLET_RingBuffer;
 
-[[nodiscard]] VIOLET_FORCEINLINE VIOLET_RingBuffer
+[[nodiscard]] VIOLET_INLINE VIOLET_RingBuffer
     VIOLET_IMPLEMENTATION_RingBufferCreate
     (
         const size_t fp_Capacity,
@@ -87,7 +87,7 @@ typedef struct{
     return f_RingBuffer;
 }
 
-[[nodiscard]] VIOLET_FORCEINLINE void*
+[[nodiscard]] VIOLET_INLINE void*
     VIOLET_IMPLEMENTATION_RingBufferWrite
     (
         VIOLET_RingBuffer* fp_Buffer
@@ -98,7 +98,7 @@ typedef struct{
     return f_Slot; // caller writes into this directly
 }
 
-[[nodiscard]] VIOLET_FORCEINLINE void*
+[[nodiscard]] VIOLET_INLINE void*
     VIOLET_IMPLEMENTATION_RingBufferPeek
     (
         const VIOLET_RingBuffer fp_Buffer,
@@ -110,7 +110,7 @@ typedef struct{
     return (uint8_t*)fp_Buffer.Data + f_Index*fp_Buffer.ElementSize;
 }
 
-[[nodiscard]] VIOLET_FORCEINLINE void*
+[[nodiscard]] VIOLET_INLINE void*
     VIOLET_IMPLEMENTATION_RingBufferPeekLatest
     (
         const VIOLET_RingBuffer fp_Buffer
@@ -120,7 +120,7 @@ typedef struct{
     return (uint8_t*)fp_Buffer.Data + f_Index*fp_Buffer.ElementSize;
 }
 
-[[nodiscard]] VIOLET_FORCEINLINE size_t //kinda just intended if ur unsure or as a safety check for reading data on first write cycle owo 
+[[nodiscard]] VIOLET_INLINE size_t //kinda just intended if ur unsure or as a safety check for reading data on first write cycle owo 
     VIOLET_IMPLEMENTATION_RingBufferGetValidElementCount
     (
         const VIOLET_RingBuffer fp_Buffer
@@ -131,7 +131,7 @@ typedef struct{
         : fp_Buffer.Capacity;
 }
 
-VIOLET_FORCEINLINE void
+VIOLET_INLINE void
     VIOLET_IMPLEMENTATION_RingBufferDestroy
     (
         VIOLET_RingBuffer* fp_Buffer

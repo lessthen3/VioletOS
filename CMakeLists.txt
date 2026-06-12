@@ -73,6 +73,19 @@ set(VIOLET_FREESTANDING_FLAGS
     -mno-avx
     -Wall
     -Wextra
+    -Werror
+)
+
+set(VIOLET_SHARED_FLAGS
+
+    ${VIOLET_FREESTANDING_FLAGS}
+
+    -masm=intel # intel syntax asm; way more readable than AT&T garbage uwu
+
+    -fshort-wchar # UEFI uses 16 bit wide chars aka UTF-16 or UCS-2
+
+    $<$<CONFIG:Debug>:   -g3 -O0>
+    $<$<CONFIG:Release>: -O2>
 )
 
 ####################################### UEFI include function #######################################
@@ -145,14 +158,10 @@ if(VIOLET_BUILD_BOOTLOADER)
     apply_uefi_includes(violet_bootloader PRIVATE)
 
     target_compile_options(violet_bootloader PRIVATE
-        ${VIOLET_FREESTANDING_FLAGS} 
+
+        ${VIOLET_SHARED_FLAGS} 
 
         -target x86_64-pc-win32-coff # PE32+ target: clang handles this natively, uefi uses windows style stuff idk its arbitrary but ye 
-
-        -fshort-wchar # UEFI uses 16 bit wide chars aka UTF-16 or UCS-2
-
-        $<$<CONFIG:Debug>:   -g3 -O0>
-        $<$<CONFIG:Release>: -O2>
     )
 
     # lld is required here, apparently ld.bfd literally cannot produce PE32+ output
@@ -236,7 +245,8 @@ if(VIOLET_BUILD_KERNEL)
     ####################################### make sure we don't do anything stupid since we can't libc shit and w/e
 
     target_compile_options(violet_kernel PRIVATE
-        ${VIOLET_FREESTANDING_FLAGS}
+    
+        ${VIOLET_SHARED_FLAGS}
 
         #[[ 
             kernel lives at 0xFFFFFFFF80000000 at the top 2GB of virtual address space
@@ -246,13 +256,6 @@ if(VIOLET_BUILD_KERNEL)
         ]]
 
         -mcmodel=kernel
-
-        -masm=intel # intel syntax asm; way more readable than AT&T garbage uwu
-
-        -fshort-wchar # UEFI uses 16 bit wide chars aka UTF-16 or UCS-2
-
-        $<$<CONFIG:Debug>:   -g3 -O0>
-        $<$<CONFIG:Release>: -O2>
     )
 
     #[[ 

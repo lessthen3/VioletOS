@@ -61,20 +61,4 @@ EFI_STATUS
         uint64_t          fp_Flags
     );
 
-/*
-    Violet_LoadCr3: load the new page tables;
-    we need to inline asm here uwu it's the one place we need it, and must be called after ExitBootServices
-*/
-static VIOLET_FORCEINLINE 
-    void Violet_LoadCr3(uint64_t fp_Pml4PhysicalAddress)
-{
-    __asm__ volatile
-    (
-        "mov %0, %%cr3" // AT&T syntax here since clang defaults to it uwu
-        :
-        : "r" (fp_Pml4PhysicalAddress)
-        : "memory"
-    );
-}
-
 #endif /*VIOLET_BOOTLOADER_PAGE_TABLE_HG*/

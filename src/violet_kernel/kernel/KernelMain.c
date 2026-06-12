@@ -18,10 +18,14 @@
 #include "shared/gop/console/GopConsole.h"
 #include "shared/utils/StringConversion.h"
 #include "shared/arch/Sleep.h"
+#include "shared/arch/MemoryWidthTypes.h"
 
 ///VioletKernel
 #include "VioletPanic.h"
+
 #include "kernel/memory/PhysicalMemoryManager.h"
+#include "kernel/memory/VirtualMemoryManager.h"
+
 #include "kernel/vklib/memset.h"
 
 /*
@@ -70,8 +74,8 @@ extern uint8_t VioletKernelPhysicalEnd[];
     */
 
 __attribute__((section(".text.boot")))
-void 
-    KernelMain(VioletBoot_Info* fp_BootInfo)
+[[noreturn]] void 
+    KernelMain(VioletBoot_Info* fp_BootInfo) //can't return since we completely nuked uefi main here owo and boot serivces was exited, only things running now are the uefi runtime services
 {
     //////////////////////////////////////// FIRST THING: zero the BSS segment ////////////////////////////////////////
     /*
@@ -87,6 +91,10 @@ void
 
     VioletPmm_Init(fp_BootInfo, (phys_addr_t)VioletKernelPhysicalEnd);
 
+    //////////////////////////////////////// Initialize the Vmm now uwu ////////////////////////////////////////
+
+    VioletVmm_Init(fp_BootInfo);
+
     //////////////////////////////////////// Setup a console for now until we have a DE ////////////////////////////////////////
 
     VioletGopFrameBuffer_ClearScreen(&fp_BootInfo->FrameBuffer, VIOLET_COLOUR_GREEN);  // owo
@@ -96,7 +104,21 @@ void
 
     //////////////////////////////////////////////////////////////////////////////// Random Testing Stuff ////////////////////////////////////////////////////////////////////////////////
 
-    // VIOLET_SLEEP_FOR_CYCLES(10'000'000'000);
+    // now deliberately overwrite the freed UEFI stack pages with 0xDEADBEEF
+    // if we were still using them as a stack this would corrupt return addresses and triple fault
+    // if this doesn't crash: stack switch worked, PMM free worked, we're clean
+    uint32_t* f_OldStack      = (uint32_t*)fp_BootInfo->BootloaderStackBase;
+    size_t    f_OldStackWords = (fp_BootInfo->BootloaderStackPageAmount * 0x1000) / sizeof(uint32_t);
+
+    for (size_t lv_Index = 0; lv_Index < f_OldStackWords; lv_Index++)
+    {
+        f_OldStack[lv_Index] = 0xDEADBEEF;
+    }
+
+    VioletGopConsole_PrintLine(&f_VioletConsole, "UEFI stack trashed successfully, still alive 💜");
+    VioletGopConsole_PrintLine(&f_VioletConsole, "BSS boot stack confirmed working");
+
+    // VioletArch_SleepCycles(10'000'000'000);
 
     // VIOLET_PANIC_IF(true, "Test UwU!");
 
@@ -106,7 +128,7 @@ void
 
     for (;;)
     {
-        VIOLET_SLEEP_FOR_CYCLES(1'000'000'000);
+        VioletArch_SleepCycles(1'000'000'000);
 
         VioletGopConsole_PrintLine(&f_VioletConsole, uintn_to_str(f_Counter++));        
     }

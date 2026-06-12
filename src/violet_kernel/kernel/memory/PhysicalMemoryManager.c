@@ -12,6 +12,7 @@
 
 ///VioletShared
 #include "shared/GeneralMacros.h"
+#include "shared/arch/MemoryWidthTypes.h"
 
 ///VioletKernel
 #include "kernel/VioletPanic.h"
@@ -61,19 +62,19 @@ static Violet_Pmm singleton_Pmm;
     We're always dividing by 64 or 32 which are powers of 2, which is equivalent to a bitshift
 */
 
-VIOLET_FORCEINLINE static void 
+VIOLET_INLINE static void 
     Internal_BitmapSetBit(size_t* fp_Bitmap, size_t fp_BitIndex)
 {
     fp_Bitmap[fp_BitIndex >> BITMAP_SHIFT_DIVISION] |= ((size_t)1 << (fp_BitIndex & BITMAP_MASK_MODULO));
 }
 
-VIOLET_FORCEINLINE static void 
+VIOLET_INLINE static void 
     Internal_BitmapClearBit(size_t* fp_Bitmap, size_t fp_BitIndex)
 {
     fp_Bitmap[fp_BitIndex >> BITMAP_SHIFT_DIVISION] &= ~((size_t)1 << (fp_BitIndex & BITMAP_MASK_MODULO));
 }
 
-VIOLET_FORCEINLINE static int 
+VIOLET_INLINE static int 
     Internal_BitmapTestBit(const size_t* fp_Bitmap, size_t fp_BitIndex)
 {
     return (fp_Bitmap[fp_BitIndex >> BITMAP_SHIFT_DIVISION] >> (fp_BitIndex & BITMAP_MASK_MODULO)) & 1;
@@ -83,7 +84,7 @@ VIOLET_FORCEINLINE static int
     internal helpers for marking page ranges
 ==============================================================*/
 
-VIOLET_FORCEINLINE static void 
+VIOLET_INLINE static void 
     Internal_MarkPagesUsed
     (
         size_t fp_PhysicalBase, 
@@ -104,7 +105,7 @@ VIOLET_FORCEINLINE static void
     }
 }
 
-VIOLET_FORCEINLINE static void 
+VIOLET_INLINE static void 
     Internal_MarkPagesFree
     (
         size_t fp_PhysicalBase, 
@@ -136,6 +137,8 @@ void
         size_t                 fp_KernelPhysicalEnd
     )
 {
+    VIOLET_PANIC_IF(fp_BootInfo == nullptr, "nullptr to boot info was passed ;w;");
+
     singleton_Pmm.Bitmap          = (size_t*)fp_BootInfo->BitmapPhysicalAddress;
     singleton_Pmm.TotalPages      = fp_BootInfo->TotalPageCount;
     singleton_Pmm.FreePages       = 0;
@@ -172,6 +175,11 @@ void
             Internal_MarkPagesFree(f_Desc->PhysicalStart, f_Desc->NumberOfPages);
         }
     }
+
+    //////////////////////////////////////// Mark the UefiMain pages we allocated for the cr3 jump to kernel main as free ////////////////////////////////////////
+
+    Internal_MarkPagesFree(fp_BootInfo->BootloaderCodeBase,  fp_BootInfo->BootloaderCodePageAmount);
+    Internal_MarkPagesFree(fp_BootInfo->BootloaderStackBase, fp_BootInfo->BootloaderStackPageAmount);
 
     //////////////////////////////////////// now re-mark regions that must stay reserved even though they're in conventional memory ranges or boot services memory ////////////////////////////////////////
 

@@ -53,7 +53,8 @@ void
     (
         const char* fp_Condition,
         const char* fp_Message,
-        const char* fp_Location
+        const char* fp_FileName,
+        const char* fp_FunctionName
     )
 {
     /*
@@ -61,7 +62,7 @@ void
         CLI is a privileged instruction, valid in ring 0
         after this no IRQ can fire and context-switch us away
     */
-    VIOLET_DISABLE_INTERRUPTS;
+    VioletArch_DisableInterrupts();
 
     if (s_GopFrameBuffer not_eq NULL) //this is so we don't triple fault, at least the previous frame buffer will be there and just freeze
     {
@@ -89,20 +90,26 @@ void
 
         if (fp_Condition not_eq NULL)
         {
-            VioletGopConsole_Print(&f_PanicConsole, "  Condition Failed: ");
+            VioletGopConsole_Print(&f_PanicConsole, "  Condition Failed:    ");
             VioletGopConsole_PrintLine(&f_PanicConsole, fp_Condition);
         }
 
         if (fp_Message not_eq NULL)
         {
-            VioletGopConsole_Print(&f_PanicConsole, "  What Happened:   ");
+            VioletGopConsole_Print(&f_PanicConsole, "  What Happened:    ");
             VioletGopConsole_PrintLine(&f_PanicConsole, fp_Message);
         }
 
-        if(fp_Location not_eq NULL)
+        if(fp_FileName not_eq NULL)
         {
-            VioletGopConsole_Print(&f_PanicConsole, "  Location:   ");
-            VioletGopConsole_PrintLine(&f_PanicConsole, fp_Location);
+            VioletGopConsole_Print(&f_PanicConsole, "  File:    ");
+            VioletGopConsole_PrintLine(&f_PanicConsole, fp_FileName);
+        }
+
+        if(fp_FunctionName not_eq NULL)
+        {
+            VioletGopConsole_Print(&f_PanicConsole, "  Function:    ");
+            VioletGopConsole_PrintLine(&f_PanicConsole, fp_FunctionName);
         }
 
         VioletGopConsole_PrintLine(&f_PanicConsole, "");

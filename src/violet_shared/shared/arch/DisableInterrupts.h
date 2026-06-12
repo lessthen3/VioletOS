@@ -11,12 +11,36 @@
 #ifndef VIOLET_KERNEL_ARCH_HAL_DISABLE_INTERRUPTS_HG
 #define VIOLET_KERNEL_ARCH_HAL_DISABLE_INTERRUPTS_HG
 
+#include "shared/GeneralMacros.h"
+
 #if defined(VIOLET_ARCH_X86_64)
-#   define VIOLET_DISABLE_INTERRUPTS __asm__ volatile ("cli" ::: "memory")
-#   define VIOLET_ENABLE_INTERRUPTS  __asm__ volatile ("sti" ::: "memory")
+
+    VIOLET_INLINE static void
+        VioletArch_DisableInterrupts()
+    {
+        __asm__ volatile ("cli" ::: "memory");
+    }
+
+    VIOLET_INLINE static void
+        VioletArch_EnableInterrupts()
+    {
+        __asm__ volatile ("sti" ::: "memory");
+    }
+
 #elif defined(VIOLET_ARCH_ARM64)
-#   define VIOLET_DISABLE_INTERRUPTS __asm__ volatile ("msr daifset, #0xf" ::: "memory")
-#   define VIOLET_ENABLE_INTERRUPTS  __asm__ volatile ("msr daifclr, #0xf" ::: "memory")
+
+    VIOLET_INLINE static void
+        VioletArch_DisableInterrupts()
+    {
+        __asm__ volatile ("msr daifset, #0xf" ::: "memory");
+    }
+
+    VIOLET_INLINE static void
+        VioletArch_EnableInterrupts()
+    {
+        __asm__ volatile ("msr daifclr, #0xf" ::: "memory");
+    }
+
 #else
 #   error "unsupported architecture — add interrupt disable for this arch"
 #endif

@@ -17,10 +17,6 @@
 ///VioletShared
 #include "shared/BootInfo.h"
 
-typedef uint64_t phys_addr_t; // Physical addresses are always 64-bit (handles x86_64 and 32-bit PAE)
-typedef size_t   virt_addr_t; // Virtual addresses match the native CPU register width
-
-#define VIOLET_PAGE_SIZE ((phys_addr_t)4096)
 /*
     VioletPMM — the physical memory allocator state
     one global instance lives in kernel BSS

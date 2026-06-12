@@ -28,16 +28,20 @@ void
     (
         const char* fp_Condition, 
         const char* fp_Message,
-        const char* fp_Location
+        const char* fp_FileName,
+        const char* fp_FunctionName
     );
 
+//================================================================================ File Name OwO ================================================================================//
 
-#define VIOLET_PANIC_IF(fp_Condition, fp_Message) (VIOLET_UNLIKELY(fp_Condition) ? VioletPanicExit(#fp_Condition, fp_Message, VIOLET_FILENAME) : (void)0)
+#define VIOLET_FILENAME ((__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__))
 
-/*
-    VIOLET_ASSERT — debug-only panic, stripped in release builds
-    for catching invariant violations during development
-*/
+//================================================================================ Panic ;w; ================================================================================//
+
+#define VIOLET_PANIC_IF(fp_Condition, fp_Message) (VIOLET_UNLIKELY(fp_Condition) ? VioletPanicExit(#fp_Condition, fp_Message, VIOLET_FILENAME, __PRETTY_FUNCTION__) : (void)0)
+
+//================================================================================ Assert >w< ================================================================================//
+
 #ifdef NDEBUG
 #   define VIOLET_ASSERT(fp_Condition, fp_Message) ((void)0)
 #else

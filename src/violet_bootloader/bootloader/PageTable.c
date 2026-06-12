@@ -10,6 +10,9 @@
 ********************************************************************/
 #include "PageTable.h"
 
+///VioletShared
+#include "shared/arch/MemoryWidthTypes.h"
+
 ///CSTD
 #include <iso646.h>
 
@@ -103,7 +106,7 @@ EFI_STATUS
         f_Pml4Table[f_Pml4Idx] = f_NewPdpt | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
     }
 
-    uint64_t* f_PdptTable = (uint64_t*)(f_Pml4Table[f_Pml4Idx] & ~0xFFFULL);
+    uint64_t* f_PdptTable = (uint64_t*)(f_Pml4Table[f_Pml4Idx] & ~(VIOLET_PAGE_SIZE - 1));
     uint64_t  f_PdptIdx   = Internal_PdptIndex(fp_VirtualAddress);
 
     /* get or create PD */
@@ -119,7 +122,7 @@ EFI_STATUS
         f_PdptTable[f_PdptIdx] = f_NewPd | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
     }
 
-    uint64_t* f_PdTable = (uint64_t*)(f_PdptTable[f_PdptIdx] & ~0xFFFULL);
+    uint64_t* f_PdTable = (uint64_t*)(f_PdptTable[f_PdptIdx] & ~(VIOLET_PAGE_SIZE - 1));
     uint64_t  f_PdIdx   = Internal_PdIndex(fp_VirtualAddress);
 
     /* get or create PT */
@@ -135,7 +138,7 @@ EFI_STATUS
         f_PdTable[f_PdIdx] = f_NewPt | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
     }
 
-    uint64_t* f_PtTable = (uint64_t*)(f_PdTable[f_PdIdx] & ~0xFFFULL);
+    uint64_t* f_PtTable = (uint64_t*)(f_PdTable[f_PdIdx] & ~(VIOLET_PAGE_SIZE - 1));
     uint64_t  f_PtIdx   = Internal_PtIndex(fp_VirtualAddress);
 
     /* write the final mapping */
@@ -173,8 +176,8 @@ uint64_t
     */
     for (uint64_t lv_Page = 0; lv_Page < fp_KernelPageCount; lv_Page++)
     {
-        uint64_t fv_VirtualAddress = fp_KernelVirtualBase + lv_Page*0x1000;
-        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*0x1000;
+        uint64_t fv_VirtualAddress = fp_KernelVirtualBase + lv_Page*VIOLET_PAGE_SIZE;
+        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*VIOLET_PAGE_SIZE;
 
         EFI_STATUS fv_Status = Violet_MapPage
         (
@@ -200,7 +203,7 @@ uint64_t
     */
     for (uint64_t lv_Page = 0; lv_Page < fp_KernelPageCount; lv_Page++)
     {
-        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*0x1000;
+        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*VIOLET_PAGE_SIZE;
 
         EFI_STATUS fv_Status = Violet_MapPage
         (

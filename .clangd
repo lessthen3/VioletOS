@@ -1,0 +1,9 @@
+CompileFlags:
+    Add: [-std=c23, -ffreestanding]
+    CompilationDatabase: build
+
+Index:
+    Background: Build
+
+Completion:
+    HeaderInsertion: Never

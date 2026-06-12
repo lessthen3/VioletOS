@@ -51,6 +51,11 @@ typedef struct {
     uint64_t                BitmapSizeBytes;       // how big it is
 
     uint64_t                TotalPageCount;
+
+    uint64_t BootloaderCodeBase;
+    uint64_t BootloaderCodePageAmount;
+    uint64_t BootloaderStackBase;
+    uint64_t BootloaderStackPageAmount;
 } VioletBoot_Info;
 
 #endif /*VIOLET_SHARED_BOOT_INFO_HG*/

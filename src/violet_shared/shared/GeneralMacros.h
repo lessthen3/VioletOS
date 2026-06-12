@@ -14,12 +14,12 @@
 //================================================================================ Force Inline ================================================================================//
 
 #if defined(_MSC_VER)
-#   define VIOLET_FORCEINLINE __forceinline
+#   define VIOLET_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
-#   define VIOLET_FORCEINLINE inline __attribute__((always_inline))
+#   define VIOLET_INLINE inline __attribute__((always_inline))
 #else
-#   define VIOLET_FORCEINLINE inline // Fallback for anything else
-#endif /*VIOLET_FORCEINLINE*/
+#   define VIOLET_INLINE inline // Fallback for anything else
+#endif /*VIOLET_INLINE*/
 
 //================================================================================ Likely/Unlikely ================================================================================//
 
@@ -35,9 +35,5 @@
 //================================================================================ Compiler Barrier ================================================================================//
 
 #define VIOLET_COMPILER_BARRIER() __asm__ volatile ("" ::: "memory")
-
-//================================================================================ File Name OwO ================================================================================//
-
-#define VIOLET_FILENAME ((__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__))
 
 #endif /*VIOLET_SHARED_GENERAL_MACROS_HG*/

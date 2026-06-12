@@ -11,6 +11,7 @@
 
 ///UEFI
 #include <Uefi.h>
+#include <Protocol/LoadedImage.h>
 
 ///VioletShared
 #include "shared/gop/console/GopConsole.h"
@@ -19,6 +20,8 @@
 
 #include "shared/arch/DisableInterrupts.h"
 #include "shared/arch/Sleep.h"
+#include "shared/arch/PageTableOperations.h"
+#include "shared/arch/MemoryWidthTypes.h"
 
 ///VioletBootloader uwu
 #include "MemoryMap.h"
@@ -26,22 +29,31 @@
 #include "PageTable.h"
 #include "GopInit.h"
 
-#define VIOLET_X86_PAGE_SIZE 0x1000
-
-#define VIOLET_SPIN_FOREVER for(;;) {;}
+#define VIOLET_SPIN_FOREVER() for(;;) {;}
 
 /*
-    UefiMain — UEFI application entry point
-    UEFI firmware finds BOOTX64.EFI on the ESP, parses the PE32+ header,
-    and calls this function with:
+    UEFI firmware finds BOOTX64.EFI on the ESP, parses the PE32+ header, and calls this function with:
         fp_ImageHandle — handle to this EFI application image
-        fp_SystemTable — root of everything UEFI gives you:
-            boot services, runtime services, console, protocol handles
+        fp_SystemTable — root of everything UEFI gives you: boot services, runtime services, console, protocol handles
             
     EFIAPI enforces the Microsoft x64 calling convention (shadow space etc.)
     clang handles this automatically when targeting x86_64-pc-win32-coff
     but the annotation is explicit documentation of the ABI requirement
 */
+
+/*
+    CHECK!: init GOP framebuffer (Gop.h)
+    CHECK!: print something to screen so we know we're alive
+    CHECK!: get UEFI memory map (MemoryMap.h)
+    CHECK!: load kernel ELF from ESP (ElfLoader.h)
+    CHECK!: set up initial page tables
+    CHECK!: map pages required for the PMM bitmap
+    CHECK!: call ExitBootServices() and can UEFI boot services forever (or at least until the next startup >w<)
+    CHECK!: jump to KernelMain
+
+    we have a minimal bootloader working >///<
+*/
+
 EFI_STATUS EFIAPI 
     UefiMain
     (
@@ -49,18 +61,22 @@ EFI_STATUS EFIAPI
         EFI_SYSTEM_TABLE* fp_SystemTable
     )
 {
-    /*
-        CHECK!: init GOP framebuffer (Gop.h)
-        CHECK!: print something to screen so we know we're alive
-        CHECK!: get UEFI memory map (MemoryMap.h)
-        CHECK!: load kernel ELF from ESP (ElfLoader.h)
-        CHECK!: set up initial page tables
-        CHECK!: map pages required for the PMM bitmap
-        CHECK!: call ExitBootServices() and can UEFI boot services forever (or at least until the next startup >w<)
-        CHECK!: jump to KernelMain
+    //////////////////////////////////////// Grab the rsp immediately so we get the most accurate version ////////////////////////////////////////
 
-        we have a minimal bootloader working >///<
-    */
+    uint64_t f_InitialRegisterStackPointerValue;
+    __asm__ volatile("mov %0, rsp" : "=r"(f_InitialRegisterStackPointerValue));
+
+    //////////////////////////////////////// find the address of the efi so we can map the code as well after we setup the pml4 ////////////////////////////////////////
+
+    EFI_LOADED_IMAGE_PROTOCOL* f_UefiMainImage = NULL;
+    EFI_GUID f_UefiMainGuid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
+
+    fp_SystemTable->BootServices->HandleProtocol
+    (
+        fp_ImageHandle, 
+        &f_UefiMainGuid, 
+        (VOID**)&f_UefiMainImage
+    );
 
     //////////////////////////////////////// Initialize FrameBuffer ////////////////////////////////////////
 
@@ -92,19 +108,19 @@ EFI_STATUS EFIAPI
 
     fp_SystemTable->BootServices->GetMemoryMap(&f_DummyMapSize, NULL, &f_MapKey, &f_DescSize, &f_DescVersion);
 
-    // 2. Add a generous padding of 2 pages (8192 bytes) for any UEFI background allocations
-    UINTN f_SafeMapSize = f_DummyMapSize + 0x2000;
-    UINTN f_RequiredMapPages = (f_SafeMapSize + 0xFFF) / 0x1000; // Round up to pages
+    // Add a generous padding of 2 pages (8192 bytes) for any UEFI background allocations
+    UINTN f_SafeMapSize = f_DummyMapSize + 2*VIOLET_PAGE_SIZE;
+    UINTN f_RequiredMapPages = (f_SafeMapSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE; // Round up to pages
 
     //////////////////////////////////////// pre allocate 4 massive, page-aligned pages (16 KiB) right away
 
-    EFI_PHYSICAL_ADDRESS f_MemoryMapPhysicalAddress = 0;
-    fp_SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, f_RequiredMapPages, &f_MemoryMapPhysicalAddress);
-    f_MemoryMap.Descriptors = (void*)f_MemoryMapPhysicalAddress;
+    EFI_PHYSICAL_ADDRESS f_MemoryMapDescriptorsPhysicalAddressBase = 0;
+    fp_SystemTable->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, f_RequiredMapPages, &f_MemoryMapDescriptorsPhysicalAddressBase);
+    f_MemoryMap.Descriptors = (void*)f_MemoryMapDescriptorsPhysicalAddressBase;
 
     //////////////////////////////////////// Tell UEFI we have 16 KiB of space, and just grab the map in one shot!
 
-    f_MemoryMap.MapSize = 4 * 0x1000;
+    f_MemoryMap.MapSize = 4 * VIOLET_PAGE_SIZE;
 
     fp_SystemTable->BootServices->GetMemoryMap
     (
@@ -125,14 +141,14 @@ EFI_STATUS EFIAPI
     if (EFI_ERROR(f_Status))
     {
         VioletGopConsole_PrintLine(&f_VioletConsole, "failed to load kernel elf ;w;");
-        VIOLET_SPIN_FOREVER //spin forever to make sure user sees and closes :'(
+        VIOLET_SPIN_FOREVER(); //spin forever to make sure user sees and closes :'(
     }
 
     VioletGopConsole_PrintLine(&f_VioletConsole, "[SUCCESS]: kernel loaded!");
 
     //////////////////////////////////////// Setup Basic PageTable sufficient for the kernel to start uwu ////////////////////////////////////////
 
-    uint64_t f_KernelPageCount = (f_Kernel.LoadEnd - f_Kernel.LoadBase + 0xFFF) / 0x1000;
+    uint64_t f_KernelPageCount = (f_Kernel.LoadEnd - f_Kernel.LoadBase + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
 
     uint64_t f_Pml4 = Violet_SetupPageTables
     (
@@ -145,15 +161,15 @@ EFI_STATUS EFIAPI
     if (f_Pml4 == 0)
     {
         VioletGopConsole_PrintLine(&f_VioletConsole, "page table setup failed ;w;");
-        for (;;) { ; } //spin forever to make sure user sees and closes :'(
+        VIOLET_SPIN_FOREVER(); //spin forever to make sure user sees and closes :'(
     }
 
     //////////////////////////////////////// Map pages for the PMM's bitmap ////////////////////////////////////////
 
-    size_t f_TotalPageCount = (uint64_t)(VioletMemoryMap_GetHighestPhysicalAddress(&f_MemoryMap) / 0x1000);
+    size_t f_TotalPageCount = (uint64_t)(VioletMemoryMap_GetHighestPhysicalAddress(&f_MemoryMap) / VIOLET_PAGE_SIZE);
     size_t f_BitmapSizeBytes = (f_TotalPageCount + 7) / 8;
 
-    UINTN f_BitmapRequiredPagesAmount = (f_BitmapSizeBytes + 0xFFF) / 0x1000;
+    UINTN f_BitmapRequiredPagesAmount = (f_BitmapSizeBytes + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
 
     VioletGopConsole_Print(&f_VioletConsole, "Required Pages: ");
     VioletGopConsole_PrintLine(&f_VioletConsole, uintn_to_str(f_BitmapRequiredPagesAmount)); // ain't doing str ops yet lmfao
@@ -173,13 +189,13 @@ EFI_STATUS EFIAPI
     if(EFI_ERROR(f_Status))
     {
         VioletGopConsole_PrintLine(&f_VioletConsole, "[BOOT FAILED]: no viable region found for PMM bitmap");
-        for(;;) { ; } // sit on the error, prompt user to reboot ig idk
+        VIOLET_SPIN_FOREVER(); // sit on the error, prompt user to reboot ig idk
     }
 
     // identity map it so the kernel can write to it
     for (uint64_t lv_Page = 0; lv_Page < f_BitmapRequiredPagesAmount; lv_Page++)
     {
-        uint64_t fv_PhysicalAddress = f_BitmapPhysicalAddress + lv_Page*0x1000;
+        uint64_t fv_PhysicalAddress = f_BitmapPhysicalAddress + lv_Page*VIOLET_PAGE_SIZE;
 
         Violet_MapPage
         (
@@ -211,10 +227,11 @@ EFI_STATUS EFIAPI
 
     //////////////////////////////////////// Map the Memory Map Buffer ////////////////////////////////////////
 
-    // Map all 4 pages of our memory map buffer into the kernel page tables
+    // map the memory map descriptors across 4 pages, 16KiB should be more than enough to handle them uwu
+
     for (uint64_t lv_Page = 0; lv_Page < 4; lv_Page++)
     {
-        uint64_t fv_PhysicalAddress = f_MemoryMapPhysicalAddress + (lv_Page * 0x1000);
+        uint64_t fv_PhysicalAddress = f_MemoryMapDescriptorsPhysicalAddressBase + lv_Page*VIOLET_PAGE_SIZE;
 
         Violet_MapPage
         (
@@ -227,10 +244,12 @@ EFI_STATUS EFIAPI
 
     //////////////////////////////////////// Grab the location of UefiMain ////////////////////////////////////////
 
-    uint64_t f_BootloaderCodeBase = (uint64_t)UefiMain & ~0xFFFULL;
-    for (uint64_t lv_Page = 0; lv_Page < 1024; lv_Page++)
+    uint64_t f_BootloaderCodeBase = (uint64_t)f_UefiMainImage->ImageBase;
+    uint64_t f_BootloaderCodePageAmount = (f_UefiMainImage->ImageSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
+
+    for (uint64_t lv_Page = 0; lv_Page < f_BootloaderCodePageAmount; lv_Page++)
     {
-        uint64_t f_Address = f_BootloaderCodeBase + lv_Page*0x1000;
+        uint64_t f_Address = f_BootloaderCodeBase + lv_Page*VIOLET_PAGE_SIZE;
 
         Violet_MapPage
         (
@@ -241,35 +260,78 @@ EFI_STATUS EFIAPI
         );
     }
 
-    //////////////////////////////////////// identity map the bootloader stack and grab the current RSP register value so we don't unmap our stack frame ////////////////////////////////////////
-    
-    uint64_t f_RegisterStackPointerValue;
-    __asm__ volatile("mov %%rsp, %0" : "=r"(f_RegisterStackPointerValue));
-    
-    /* Shift base down 64 KiB (16 pages) to capture the stack tail, then map 128 KiB (32 pages) total to cover above and below RSP */
-    
-    uint64_t f_BootLoaderStackBase = (f_RegisterStackPointerValue & ~0xFFFULL) - (16 * 0x1000);
-    for (uint64_t lv_Page = 0; lv_Page < 32; lv_Page++)
+    f_BootInfo->BootloaderCodeBase       = f_BootloaderCodeBase;
+    f_BootInfo->BootloaderCodePageAmount = f_BootloaderCodePageAmount;
+
+    //////////////////////////////////////// identity map the uefimain stack so we don't unmap our stack frame when we do our cr3 jump ////////////////////////////////////////
+
+    uint64_t f_StackBlockTarget          = f_InitialRegisterStackPointerValue;
+    uint64_t f_BootLoaderStackBase       = 0;
+    uint64_t f_BootLoaderStackPageAmount = 0;
+
+    /*
+        essentially we loop through each UEFI memory descriptor because the memory region associated with UefiMain's stack frame will be there;
+        so we just look for the region of memory that contains the register stack pointer address we cached at the beginning of the function owo
+        this ensures that we capture the entire region to avoid weird edge cases, as well as fully utilize the memory given to us for the bootloader >w<
+        it should be 128 KiB at the very least for any motherboard(probably the uefi vendor let's be real) that is UEFI compliant
+    */
+
+    for (size_t lv_Index = 0; lv_Index < f_MemoryMap.DescriptorCount; lv_Index++)
     {
-        uint64_t f_Address = f_BootLoaderStackBase + lv_Page*0x1000;
+        EFI_MEMORY_DESCRIPTOR* fv_Descriptor = (EFI_MEMORY_DESCRIPTOR*)((uint8_t*)f_MemoryMap.Descriptors + (lv_Index * f_MemoryMap.DescriptorSize));
+
+        uint64_t lv_Start = fv_Descriptor->PhysicalStart;
+        uint64_t lv_End   = lv_Start + (fv_Descriptor->NumberOfPages * VIOLET_PAGE_SIZE);
+
+        if (f_StackBlockTarget >= lv_Start and f_StackBlockTarget < lv_End) // Does our RSP fall inside this allocated UEFI memory region?
+        {
+            f_BootLoaderStackBase = lv_Start;
+            f_BootLoaderStackPageAmount = fv_Descriptor->NumberOfPages;
+
+            break;
+        }
+    }
+
+    if(f_BootLoaderStackBase == 0 or f_BootLoaderStackPageAmount == 0) //error out otherwise, but this should never be the case; at least somebody gets the full info tho ;w;
+    {
+        VioletGopConsole_PrintLine(&f_VioletConsole, "[BOOT FAILED]: unable to identify memory region associated with UefiMain()'s stack frame ;w;");
+        VIOLET_SPIN_FOREVER();
+    }
+
+    VioletGopConsole_Print(&f_VioletConsole, "[INFO]: found memory region associated with uefi main's stack, number of pages: ");
+    VioletGopConsole_PrintLine(&f_VioletConsole, uintn_to_str(f_BootLoaderStackPageAmount));
+
+    VioletArch_SleepCycles(10'000'000'000);
+
+    /* 
+        Now map EXACTLY the boundaries UEFI guaranteed us, not a single page more or less;
+        the spec guarantees at least 32 pages or 16 KiB but sometimes we can be given more, some mb's are more generous lovers >///<
+    */
+
+    for (uint64_t lv_Page = 0; lv_Page < f_BootLoaderStackPageAmount; lv_Page++)
+    {
+        uint64_t f_PhysicalAddress = f_BootLoaderStackBase + (lv_Page * VIOLET_PAGE_SIZE); // physical start from uefi maps the lower floor address, so we can grow up the stack uwu
 
         Violet_MapPage
         (
             fp_SystemTable, 
             f_Pml4, 
-            f_Address, f_Address, 
+            f_PhysicalAddress, f_PhysicalAddress, //identity map the uefi main stack
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
     }
+
+    f_BootInfo->BootloaderStackBase       = f_BootLoaderStackBase;
+    f_BootInfo->BootloaderStackPageAmount = f_BootLoaderStackPageAmount;
 
     //////////////////////////////////////// identity map the framebuffer since it's MMIO ////////////////////////////////////////
 
     uint64_t f_FrameBufferSize  = (uint64_t)f_ConsoleFrameBuffer.Height * f_ConsoleFrameBuffer.PixelsPerScanLine * 4; // size =  height * pixelsPerScanLine * 4 bytes, round up to pages
-    uint64_t f_RequiredFrameBufferPages = (f_FrameBufferSize + 0xFFF) / 0x1000;
+    uint64_t f_RequiredFrameBufferPages = (f_FrameBufferSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
 
     for (uint64_t lv_Page = 0; lv_Page < f_RequiredFrameBufferPages; lv_Page++)
     {
-        uint64_t f_Address = f_ConsoleFrameBuffer.FrameBufferBase + lv_Page*0x1000;
+        uint64_t f_Address = f_ConsoleFrameBuffer.FrameBufferBase + lv_Page*VIOLET_PAGE_SIZE;
 
         Violet_MapPage
         (
@@ -286,7 +348,7 @@ EFI_STATUS EFIAPI
         
     while (1) 
     {
-        f_MemoryMap.MapSize = f_RequiredMapPages * 0x1000; // Reset size to our 16 KiB max
+        f_MemoryMap.MapSize = f_RequiredMapPages * VIOLET_PAGE_SIZE; // Reset size to our 16 KiB max
         
         fp_SystemTable->BootServices->GetMemoryMap
         (
@@ -308,7 +370,7 @@ EFI_STATUS EFIAPI
         else
         {
             VioletGopConsole_PrintLine(&f_VioletConsole, "[FAILED]: Unable to exit boot services, trying again...");
-            VIOLET_SLEEP_FOR_CYCLES(10'000'000'000);
+            VioletArch_SleepCycles(1'000'000'000);
         }
     }
     
@@ -327,11 +389,26 @@ EFI_STATUS EFIAPI
 
     //////////////////////////////////////// Shut off interrupts since we're about to unmap UEFI ////////////////////////////////////////
 
-    VIOLET_DISABLE_INTERRUPTS;
+    VioletArch_DisableInterrupts();
 
     //////////////////////////////////////// Load the basic page tables using the inline asm for cr3 uwu ////////////////////////////////////////
 
-    Violet_LoadCr3(f_Pml4);
+    VioletArch_LoadPageTable(f_Pml4);
+
+    ////////////////////////////////////////
+    // THE STACK EXPLODER 9000
+    ////////////////////////////////////////
+
+    // We grab the stack pointer.
+    uint64_t f_CurrentRsp;
+    __asm__ volatile("mov %0, rsp" : "=r"(f_CurrentRsp));
+
+    // We are going to force the CPU to write a byte 5 pages (20KB) BELOW our current stack.
+    // Because we only mapped UP, this memory is totally unmapped in our new cr3
+    volatile char* f_ExplodePtr = (volatile char*)(f_CurrentRsp - (5 * VIOLET_PAGE_SIZE));
+
+    // The moment this line executes, the CPU MMU will look at our new page tables, see that this page isn't present, throw a #PF (Page Fault), and my machine will hang/reboot.
+    *f_ExplodePtr = 'F';
 
     ////////////////////////////////////////// Get Kernel Main PFN
 
@@ -344,5 +421,5 @@ EFI_STATUS EFIAPI
 
     f_KernelEntry(f_BootInfo);
 
-    return EFI_SUCCESS;
+    return EFI_SUCCESS; // sorry you're never getting called ;w;
 }

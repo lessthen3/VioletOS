@@ -17,7 +17,7 @@
 ///VioletShared
 #include "shared/GeneralMacros.h"
 
-[[nodiscard]] VIOLET_FORCEINLINE const char* 
+[[nodiscard]] VIOLET_INLINE const char* 
     uintn_to_str(size_t value) 
 {
     // A 64-bit integer requires at most 20 digits + 1 null terminator

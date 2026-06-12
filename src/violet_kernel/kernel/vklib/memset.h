@@ -22,7 +22,7 @@
     VioletMemset: needed since we don't got libc
 */
 
-VIOLET_FORCEINLINE static void 
+VIOLET_INLINE static void 
     memset_as_u8(void* fp_Destination, uint8_t fp_Value, size_t fp_Size)
 {
     uint8_t* f_DestinationAsBytes = (uint8_t*)fp_Destination;

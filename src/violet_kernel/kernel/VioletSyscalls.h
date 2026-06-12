@@ -11,14 +11,14 @@
 #ifndef VIOLET_KERNEL_SYSCALLS_HG
 #define VIOLET_KERNEL_SYSCALLS_HG
 
-#include "GeneralMacros.h"
-#include "SyscallNumbers.h"
+#include "shared/GeneralMacros.h"
+#include "shared/SyscallNumbers.h"
 
 #include <stdint.h>
 
 
-static VIOLET_FORCEINLINE int64_t
-    VioletSyscall(uint64_t fp_Number, uint64_t fp_Arg0, uint64_t fp_Arg1, uint64_t fp_Arg2)
+static VIOLET_INLINE int64_t
+    VioletSyscall_IMPLEMENTATION(uint64_t fp_Number, uint64_t fp_Arg0, uint64_t fp_Arg1, uint64_t fp_Arg2)
 {
     int64_t f_Result;
 
@@ -37,28 +37,28 @@ static VIOLET_FORCEINLINE int64_t
 }
 
 // then you build ergonomic wrappers on top:
-static VIOLET_FORCEINLINE int64_t 
-    VioletSendMessage(uint64_t fp_Endpoint, void* fp_Msg, uint64_t fp_Len)
+static VIOLET_INLINE int64_t 
+    VioletSyscall_SendMessage(uint64_t fp_Endpoint, void* fp_Msg, uint64_t fp_Len)
 {
-    return VioletSyscall(VIOLET_SYSCALL_SEND, fp_Endpoint, (uint64_t)fp_Msg, fp_Len);
+    return VioletSyscall_IMPLEMENTATION(VIOLET_SYSCALL_SEND, fp_Endpoint, (uint64_t)fp_Msg, fp_Len);
 }
 
-static VIOLET_FORCEINLINE int64_t
-    VioletReceiveMessage(uint64_t fp_Endpoint, void* fp_Buf, uint64_t fp_BufLen)
+static VIOLET_INLINE int64_t
+    VioletSyscall_ReceiveMessage(uint64_t fp_Endpoint, void* fp_Buf, uint64_t fp_BufLen)
     {
-        return VioletSyscall(VIOLET_SYSCALL_RECV, fp_Endpoint, (uint64_t)fp_Buf, fp_BufLen);
+        return VioletSyscall_IMPLEMENTATION(VIOLET_SYSCALL_RECV, fp_Endpoint, (uint64_t)fp_Buf, fp_BufLen);
     }
 
-static VIOLET_FORCEINLINE int64_t
-    VioletExit(int64_t fp_Code)
+static VIOLET_INLINE int64_t
+    VioletSyscall_Exit(int64_t fp_Code)
     {
-        return VioletSyscall(VIOLET_SYSCALL_EXIT, (uint64_t)fp_Code, 0, 0);
+        return VioletSyscall_IMPLEMENTATION(VIOLET_SYSCALL_EXIT, (uint64_t)fp_Code, 0, 0);
     }
 
-static VIOLET_FORCEINLINE int64_t
-    VioletYield(void)
+static VIOLET_INLINE int64_t
+    VioletSyscall_Yield()
     {
-        return VioletSyscall(VIOLET_SYSCALL_YIELD, 0, 0, 0);
+        return VioletSyscall_IMPLEMENTATION(VIOLET_SYSCALL_YIELD, 0, 0, 0);
     }
 
 #endif /*VIOLET_KERNEL_SYSCALLS_HG*/

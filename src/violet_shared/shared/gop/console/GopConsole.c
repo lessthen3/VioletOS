@@ -19,7 +19,7 @@
     Internal_ScrollIfNeeded
 ==============================================================*/
 
-VIOLET_FORCEINLINE static void 
+VIOLET_INLINE static void 
     Internal_ScrollIfNeeded(VioletGop_Console* fp_Console)
 {
     if (fp_Console->CursorY * VIOLET_FONT_HEIGHT >= fp_Console->Framebuffer->Height)

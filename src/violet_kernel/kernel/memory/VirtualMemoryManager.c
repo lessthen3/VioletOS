@@ -9,3 +9,924 @@
  *         VioletOS is a free open source operating system
 ********************************************************************/
 #include "VirtualMemoryManager.h"
+
+///VioletKernel
+#include "kernel/VioletPanic.h"
+#include "kernel/vklib/memset.h"
+#include "kernel/memory/PhysicalMemoryManager.h"
+
+///VioletShared
+#include "shared/arch/PageTableOperations.h"
+
+///CSTD
+#include <iso646.h>
+
+/*============================================================
+    kernel address space — one global instance in BSS
+    the bootloader's PML4 becomes this after VioletVmm_Init
+==============================================================*/
+
+static VioletVmm_AddressSpace s_KernelAddressSpace;
+
+/*============================================================
+    address space pool — static pool for early process support
+    before we have kmalloc for dynamic allocation
+    slot 0 is always the kernel space
+==============================================================*/
+
+#define VMM_MAX_ADDRESS_SPACES 64
+
+static VioletVmm_AddressSpace s_AddressSpacePool[VMM_MAX_ADDRESS_SPACES];
+static bool                   s_AddressSpacePoolUsed[VMM_MAX_ADDRESS_SPACES];
+
+/*============================================================
+    x86_64 page table index extraction
+    virtual address bits:
+        [63:48] sign extension
+        [47:39] PML4 index
+        [38:30] PDPT index
+        [29:21] PD index
+        [20:12] PT index
+        [11:0]  page offset
+==============================================================*/
+
+static inline uint64_t 
+    Pml4Index(virt_addr_t fp_VirtAddr)
+{
+    return (fp_VirtAddr >> 39) & 0x1FF;
+}
+
+static inline uint64_t 
+    PdptIndex(virt_addr_t fp_VirtAddr)
+{
+    return (fp_VirtAddr >> 30) & 0x1FF;
+}
+
+static inline uint64_t 
+    PdIndex(virt_addr_t fp_VirtAddr)
+{
+    return (fp_VirtAddr >> 21) & 0x1FF;
+}
+
+static inline uint64_t 
+    PtIndex(virt_addr_t fp_VirtAddr)
+{
+    return (fp_VirtAddr >> 12) & 0x1FF;
+}
+
+/*============================================================
+    get a pointer to a page table given its physical address
+    uses the direct physical map — valid only after VioletVmm_Init
+    sets up the direct map region
+==============================================================*/
+
+static inline uint64_t* 
+    PhysToTable(phys_addr_t fp_PhysAddr)
+{
+    return (uint64_t*)(VIOLET_DIRECT_MAP_BASE + fp_PhysAddr);
+}
+
+/*============================================================
+    allocate one zeroed page table page from the PMM
+    returns physical address, 0 on failure
+==============================================================*/
+
+static phys_addr_t 
+    AllocateTablePage()
+{
+    phys_addr_t f_PhysAddr = VioletPmm_AllocatePage();
+
+    VIOLET_PANIC_IF(f_PhysAddr == 0, "VMM ran out of physical memory for page table");
+
+    /*
+        VioletPmm_AllocatePage returns a zeroed page — the PMM zeros it
+        using the direct map which is valid after the direct map is set up
+        however during VioletVmm_Init we're building the direct map itself
+        so the PMM's zero step might use an unmapped address
+
+        to be safe: zero it here via direct map after the direct map exists
+        the init path handles zeroing differently — see VioletVmm_Init
+    */
+    uint64_t* f_Table = PhysToTable(f_PhysAddr);
+
+    for (int lv_Index = 0; lv_Index < 512; lv_Index++)
+    {
+        f_Table[lv_Index] = 0;
+    }
+
+    return f_PhysAddr;
+}
+
+/*============================================================
+    get or create the next-level page table entry
+    walks one level of the page table tree
+    creates missing intermediate tables as needed
+
+    fp_TablePhys: physical address of the current level table
+    fp_Index:     index into that table
+    fp_Flags:     flags to set on a newly created entry
+                (flags on existing entries are NOT modified)
+
+    returns physical address of the next-level table
+    returns 0 on allocation failure
+==============================================================*/
+
+static phys_addr_t 
+    GetOrCreateNextTable
+    (
+        phys_addr_t fp_TablePhys,
+        uint64_t    fp_Index,
+        uint64_t    fp_Flags
+    )
+{
+    uint64_t* f_Table = PhysToTable(fp_TablePhys);
+    uint64_t  f_Entry = f_Table[fp_Index];
+
+    if (f_Entry & VMM_FLAG_PRESENT)
+    {
+        /*
+            entry already exists — return the physical address it points to
+            mask off the flag bits to get the clean address
+        */
+        return (phys_addr_t)(f_Entry & VMM_PHYSICAL_ADDRESS_MASK);
+    }
+
+    /*
+        entry missing — allocate a new table page and create the entry
+        intermediate entries (PML4/PDPT/PD) always get writable + user flags
+        so that user mappings can be placed below them
+        the final PT entry carries the actual permission flags
+    */
+    phys_addr_t f_NewTable = AllocateTablePage();
+
+    if (f_NewTable == 0)
+    {
+        return 0;
+    }
+
+    f_Table[fp_Index] = f_NewTable | fp_Flags | VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE;
+
+    return f_NewTable;
+}
+
+/*============================================================
+    VioletVmm_MapPage
+==============================================================*/
+
+bool 
+    VioletVmm_MapPage
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_VirtualAddress,
+        phys_addr_t             fp_PhysicalAddress,
+        uint64_t                fp_Flags
+    )
+{
+    VIOLET_PANIC_IF(fp_Space == nullptr, "null address space was passed ;w;");
+    VIOLET_PANIC_IF(fp_VirtualAddress & 0xFFF, "virtual address not page aligned >:^(");
+    VIOLET_PANIC_IF(fp_PhysicalAddress & 0xFFF, "physical address not page aligned >:^(");
+
+    /*
+        walk down the 4 levels of the page table tree
+        creating intermediate tables as needed
+        the intermediate entries get USER flag if the mapping is user-accessible
+        so the CPU allows traversal at ring 3
+    */
+    uint64_t f_IntermediateFlags = (fp_Flags & VMM_FLAG_USER) ? VMM_FLAG_USER : 0;
+
+    phys_addr_t f_Pdpt = GetOrCreateNextTable(fp_Space->Pml4PhysAddr, Pml4Index(fp_VirtualAddress), f_IntermediateFlags);
+
+    if (f_Pdpt == 0) 
+    { 
+        return false;
+    }
+
+    phys_addr_t f_Pd = GetOrCreateNextTable(f_Pdpt, PdptIndex(fp_VirtualAddress), f_IntermediateFlags);
+
+    if (f_Pd == 0) 
+    { 
+        return false; 
+    }
+
+    phys_addr_t f_Pt = GetOrCreateNextTable(f_Pd, PdIndex(fp_VirtualAddress), f_IntermediateFlags);
+
+    if (f_Pt == 0) 
+    { 
+        return false;
+    }
+
+    /*
+        write the final PT entry with the actual flags
+        if an entry already exists here we overwrite it — this is intentional
+        for remapping with different flags
+    */
+    uint64_t* f_PtTable = PhysToTable(f_Pt);
+    uint64_t  f_OldEntry = f_PtTable[PtIndex(fp_VirtualAddress)];
+
+    f_PtTable[PtIndex(fp_VirtualAddress)] = fp_PhysicalAddress | fp_Flags;
+
+    /*
+        if we're replacing an existing mapping, flush the TLB entry
+        so the CPU doesn't use the stale cached translation
+    */
+    if (f_OldEntry & VMM_FLAG_PRESENT)
+    {
+        VioletArch_InvalidatePage(fp_VirtualAddress);
+    }
+
+    return true;
+}
+
+/*============================================================
+    VioletVmm_UnmapPage
+==============================================================*/
+
+void 
+    VioletVmm_UnmapPage
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_VirtualAddress,
+        bool                    fp_FreePhysical
+    )
+{
+    if (fp_Space == nullptr)
+    {
+        return;
+    }
+
+    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysAddr);
+    uint64_t  f_Pml4Entry = f_Pml4[Pml4Index(fp_VirtualAddress)];
+
+    if (not (f_Pml4Entry & VMM_FLAG_PRESENT)) 
+    { 
+        return; 
+    }
+
+    uint64_t* f_Pdpt = PhysToTable(f_Pml4Entry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t  f_PdptEntry = f_Pdpt[PdptIndex(fp_VirtualAddress)];
+
+    if (not (f_PdptEntry & VMM_FLAG_PRESENT)) 
+    { 
+        return; 
+    }
+
+    uint64_t* f_Pd = PhysToTable(f_PdptEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t  f_PdEntry = f_Pd[PdIndex(fp_VirtualAddress)];
+
+    if (not (f_PdEntry & VMM_FLAG_PRESENT)) 
+    { 
+        return; 
+    }
+
+    uint64_t* f_Pt      = PhysToTable(f_PdEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t  f_PtEntry = f_Pt[PtIndex(fp_VirtualAddress)];
+
+    if (not (f_PtEntry & VMM_FLAG_PRESENT)) 
+    { 
+        return; 
+    }
+
+    phys_addr_t f_PhysicalAddress = (phys_addr_t)(f_PtEntry & VMM_PHYSICAL_ADDRESS_MASK);
+
+    /* clear the entry */
+    f_Pt[PtIndex(fp_VirtualAddress)] = 0;
+
+    /* flush TLB for this address */
+    VioletArch_InvalidatePage(fp_VirtualAddress);
+
+    if (fp_FreePhysical)
+    {
+        VioletPmm_FreePage(f_PhysicalAddress);
+    }
+}
+
+/*============================================================
+    VioletVmm_MapRange
+==============================================================*/
+
+bool 
+    VioletVmm_MapRange
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_VirtualBase,
+        phys_addr_t             fp_PhysicalBase,
+        size_t                  fp_PageCount,
+        uint64_t                fp_Flags
+    )
+{
+    for (size_t lv_Index = 0; lv_Index < fp_PageCount; lv_Index++)
+    {
+        virt_addr_t f_VirtAddr = fp_VirtualBase + lv_Index*VIOLET_PAGE_SIZE;
+        phys_addr_t f_PhysAddr = fp_PhysicalBase + lv_Index*VIOLET_PAGE_SIZE;
+
+        if (not VioletVmm_MapPage(fp_Space, f_VirtAddr, f_PhysAddr, fp_Flags))
+        {
+            /* partial failure; unmap what we mapped so far */
+            VioletVmm_UnmapRange(fp_Space, fp_VirtualBase, lv_Index, false);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*============================================================
+    VioletVmm_UnmapRange
+==============================================================*/
+
+void 
+    VioletVmm_UnmapRange
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_VirtualBase,
+        size_t                  fp_PageCount,
+        bool                    fp_FreePhysical
+    )
+{
+    for (size_t lv_Index = 0; lv_Index < fp_PageCount; lv_Index++)
+    {
+        VioletVmm_UnmapPage
+        (
+            fp_Space,
+            fp_VirtualBase + lv_Index*VIOLET_PAGE_SIZE,
+            fp_FreePhysical
+        );
+    }
+}
+
+/*============================================================
+    VioletVmm_VirtToPhys
+==============================================================*/
+
+phys_addr_t 
+    VioletVmm_VirtualToPhysicalAddress
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_VirtAddr
+    )
+{
+    if (fp_Space == nullptr) 
+    { 
+        return 0; 
+    }
+
+    uint64_t* f_Pml4      = PhysToTable(fp_Space->Pml4PhysAddr);
+    uint64_t  f_Pml4Entry = f_Pml4[Pml4Index(fp_VirtAddr)];
+
+    if (not (f_Pml4Entry & VMM_FLAG_PRESENT)) 
+    { 
+        return 0; 
+    }
+
+    uint64_t* f_Pdpt      = PhysToTable(f_Pml4Entry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t  f_PdptEntry = f_Pdpt[PdptIndex(fp_VirtAddr)];
+
+    if (not (f_PdptEntry & VMM_FLAG_PRESENT)) 
+    { 
+        return 0; 
+    }
+
+    uint64_t* f_Pd      = PhysToTable(f_PdptEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t  f_PdEntry = f_Pd[PdIndex(fp_VirtAddr)];
+
+    if (not (f_PdEntry & VMM_FLAG_PRESENT)) 
+    { 
+        return 0; 
+    }
+
+    /* check for 2MB huge page — PD entry with PS bit set, no PT level */
+    if (f_PdEntry & VMM_FLAG_HUGE)
+    {
+        phys_addr_t f_PageBase = (phys_addr_t)(f_PdEntry & 0x000FFFFFFFE00000ULL);
+
+        return f_PageBase + (fp_VirtAddr & 0x1FFFFF);
+    }
+
+    uint64_t* f_Pt      = PhysToTable(f_PdEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t  f_PtEntry = f_Pt[PtIndex(fp_VirtAddr)];
+
+    if (not (f_PtEntry & VMM_FLAG_PRESENT)) 
+    { 
+        return 0;
+    }
+
+    phys_addr_t f_PageBase = (phys_addr_t)(f_PtEntry & VMM_PHYSICAL_ADDRESS_MASK);
+
+    return f_PageBase + (fp_VirtAddr & 0xFFF);
+}
+
+/*============================================================
+    internal: find a free virtual range in an address space
+    scans the region list for a gap large enough for fp_PageCount pages
+    returns the base virtual address of the gap, 0 if none found
+==============================================================*/
+
+static virt_addr_t 
+    FindFreeVirtualRange
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        size_t                  fp_PageCount,
+        bool                    fp_IsKernel
+    )
+{
+    virt_addr_t f_SearchStart = fp_IsKernel ? VIOLET_KERNEL_SPACE_START : VIOLET_USER_SPACE_START;
+    virt_addr_t f_SearchEnd   = fp_IsKernel ? VIOLET_KERNEL_IMAGE_BASE  : VIOLET_USER_SPACE_END;
+    size_t      f_NeededBytes = fp_PageCount * VIOLET_PAGE_SIZE;
+
+    /*
+        scan through existing regions sorted by base address
+        find the first gap large enough for our allocation
+
+        this is O(n^2) but for VMM_MAX_REGIONS_PER_SPACE = 256 that's fine
+        upgrade to an interval tree or sorted list when we have dynamic allocation
+    */
+    virt_addr_t f_Candidate = f_SearchStart;
+
+    for (;;)
+    {
+        /* check if f_Candidate is inside any existing region */
+        bool     f_Overlaps   = false;
+        virt_addr_t f_NextRegionBase = f_SearchEnd;
+
+        for (size_t lv_Index = 0; lv_Index < VMM_MAX_REGIONS_PER_SPACE; lv_Index++)
+        {
+            VioletVmm_VmaRegion* f_Region = &fp_Space->Regions[lv_Index];
+
+            if (not f_Region->IsAllocated)
+            {
+                continue;
+            }
+
+            virt_addr_t f_RegionEnd = f_Region->Base + f_Region->PageCount * VIOLET_PAGE_SIZE;
+
+            /* does the candidate range overlap this region? */
+            if (f_Candidate < f_RegionEnd and f_Candidate + f_NeededBytes > f_Region->Base)
+            {
+                f_Overlaps      = true;
+                /* skip past this region and try again */
+                f_Candidate     = f_RegionEnd;
+                break;
+            }
+
+            /* track the start of the next region after our candidate */
+            if (f_Region->Base > f_Candidate and f_Region->Base < f_NextRegionBase)
+            {
+                f_NextRegionBase = f_Region->Base;
+            }
+        }
+
+        if (f_Overlaps)
+        {
+            /* page-align the next candidate */
+            f_Candidate = (f_Candidate + 0xFFF) & ~(virt_addr_t)0xFFF;
+            continue;
+        }
+
+        /* check if the gap between candidate and next region is large enough */
+        if (f_Candidate + f_NeededBytes <= f_NextRegionBase)
+        {
+            return f_Candidate;
+        }
+
+        /* gap too small — skip past the next region */
+        f_Candidate = f_NextRegionBase;
+
+        if (f_Candidate >= f_SearchEnd)
+        {
+            return 0; /* no space found */
+        }
+    }
+}
+
+/*============================================================
+    internal: add a region record to an address space
+    returns pointer to the slot, nullptr if the pool is full
+==============================================================*/
+
+static VioletVmm_VmaRegion* 
+    Internal_AddRegion
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_Base,
+        size_t                  fp_PageCount,
+        uint64_t                fp_Flags
+    )
+{
+    for (size_t lv_Index = 0; lv_Index < VMM_MAX_REGIONS_PER_SPACE; lv_Index++)
+    {
+        VioletVmm_VmaRegion* f_Region = &fp_Space->Regions[lv_Index];
+
+        if (not f_Region->IsAllocated)
+        {
+            f_Region->Base        = fp_Base;
+            f_Region->PageCount   = fp_PageCount;
+            f_Region->Flags       = fp_Flags;
+            f_Region->IsAllocated = true;
+            fp_Space->RegionCount++;
+            
+            return f_Region;
+        }
+    }
+
+    return nullptr; /* pool full */
+}
+
+/*============================================================
+    internal: find and remove a region record by base address
+==============================================================*/
+
+// static void 
+//     RemoveRegion
+//     (
+//         VioletVmm_AddressSpace* fp_Space,
+//         virt_addr_t             fp_Base
+//     )
+// {
+//     for (size_t lv_Index = 0; lv_Index < VMM_MAX_REGIONS_PER_SPACE; lv_Index++)
+//     {
+//         VioletVmm_VmaRegion* f_Region = &fp_Space->Regions[lv_Index];
+
+//         if (f_Region->IsAllocated and f_Region->Base == fp_Base)
+//         {
+//             f_Region->IsAllocated = false;
+//             fp_Space->RegionCount--;
+//             return;
+//         }
+//     }
+// }
+
+/*============================================================
+    VioletVmm_AllocatePages
+==============================================================*/
+
+virt_addr_t 
+    VioletVmm_AllocatePages
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        size_t                  fp_PageCount,
+        uint64_t                fp_Flags
+    )
+{
+    VIOLET_PANIC_IF(fp_Space == nullptr, "null address space was passed ;w;");
+    VIOLET_PANIC_IF(fp_PageCount == 0, "tried to allocate 0 pages");
+
+    virt_addr_t f_VirtBase = FindFreeVirtualRange(fp_Space, fp_PageCount, fp_Space->IsKernel);
+
+    if (f_VirtBase == 0)
+    {
+        return 0; /* out of virtual address space */
+    }
+
+    /* allocate and map each page */
+    for (size_t lv_Index = 0; lv_Index < fp_PageCount; lv_Index++)
+    {
+        phys_addr_t f_PhysPage = VioletPmm_AllocatePage();
+
+        if (f_PhysPage == 0)
+        {
+            /* out of physical memory — unmap and free what we did so far */
+            VioletVmm_UnmapRange(fp_Space, f_VirtBase, lv_Index, true);
+
+            return 0;
+        }
+
+        virt_addr_t f_VirtPage = f_VirtBase + lv_Index * VIOLET_PAGE_SIZE;
+
+        if (not VioletVmm_MapPage(fp_Space, f_VirtPage, f_PhysPage, fp_Flags))
+        {
+            VioletPmm_FreePage(f_PhysPage);
+            VioletVmm_UnmapRange(fp_Space, f_VirtBase, lv_Index, true);
+
+            return 0;
+        }
+    }
+
+    VIOLET_PANIC_IF(Internal_AddRegion(fp_Space, f_VirtBase, fp_PageCount, fp_Flags) == nullptr, "VMM region pool exhausted — increase VMM_MAX_REGIONS_PER_SPACE");
+
+    return f_VirtBase;
+}
+
+/*============================================================
+    VioletVmm_FreePages
+==============================================================*/
+
+void 
+    VioletVmm_FreePages
+    (
+        VioletVmm_AddressSpace* fp_Space,
+        virt_addr_t             fp_VirtBase
+    )
+{
+    if (fp_Space == nullptr)
+    {
+        return;
+    }
+
+    /* find the region record to get the page count */
+    for (size_t lv_Index = 0; lv_Index < VMM_MAX_REGIONS_PER_SPACE; lv_Index++)
+    {
+        VioletVmm_VmaRegion* f_Region = &fp_Space->Regions[lv_Index];
+
+        if (f_Region->IsAllocated and f_Region->Base == fp_VirtBase)
+        {
+            VioletVmm_UnmapRange(fp_Space, fp_VirtBase, f_Region->PageCount, true);
+            f_Region->IsAllocated = false;
+            fp_Space->RegionCount--;
+
+            return;
+        }
+    }
+
+    /* address wasn't tracked — either a bug or already freed */
+    VIOLET_PANIC_IF(true, "VioletVmm_FreePages: address was not allocated via VioletVmm_AllocatePages");
+}
+
+/*============================================================
+    VioletVmm_CreateAddressSpace
+==============================================================*/
+
+VioletVmm_AddressSpace* 
+    VioletVmm_CreateAddressSpace()
+{
+    /* find a free slot in the pool */
+    VioletVmm_AddressSpace* f_Space = nullptr;
+
+    for (size_t lv_Index = 0; lv_Index < VMM_MAX_ADDRESS_SPACES; lv_Index++)
+    {
+        if (not s_AddressSpacePoolUsed[lv_Index])
+        {
+            s_AddressSpacePoolUsed[lv_Index] = true;
+            f_Space = &s_AddressSpacePool[lv_Index];
+            break;
+        }
+    }
+
+    if (f_Space == nullptr)
+    {
+        return nullptr; /* pool full */
+    }
+
+    /* zero the structure */
+    memset_as_u8(f_Space, 0, sizeof(VioletVmm_AddressSpace));
+
+    /* allocate a new PML4 page */
+    phys_addr_t f_Pml4 = VioletPmm_AllocatePage();
+
+    if (f_Pml4 == 0)
+    {
+        s_AddressSpacePoolUsed[f_Space - s_AddressSpacePool] = false;
+        return nullptr;
+    }
+
+    f_Space->Pml4PhysAddr = f_Pml4;
+    f_Space->IsKernel     = false;
+
+    /*
+        copy kernel PML4 entries into the new space's PML4
+        the upper 256 entries (indices 256-511) are the kernel half
+        sharing them means every address space automatically sees
+        kernel mappings without any per-space synchronisation
+        this is the standard higher-half kernel design
+    */
+    uint64_t* f_NewPml4    = PhysToTable(f_Pml4);
+    uint64_t* f_KernelPml4 = PhysToTable(s_KernelAddressSpace.Pml4PhysAddr);
+
+    for (size_t lv_Index = 256; lv_Index < 512; lv_Index++)
+    {
+        f_NewPml4[lv_Index] = f_KernelPml4[lv_Index];
+    }
+
+    return f_Space;
+}
+
+/*============================================================
+    VioletVmm_DestroyAddressSpace
+==============================================================*/
+
+void 
+    VioletVmm_DestroyAddressSpace(VioletVmm_AddressSpace* fp_Space)
+{
+    VIOLET_PANIC_IF(fp_Space == nullptr, "VioletVmm_DestroyAddressSpace: null space");
+    VIOLET_PANIC_IF(fp_Space->IsKernel, "VioletVmm_DestroyAddressSpace: cannot destroy kernel space");
+
+    /* free all tracked user-space allocations */
+    for (size_t lv_Index = 0; lv_Index < VMM_MAX_REGIONS_PER_SPACE; lv_Index++)
+    {
+        VioletVmm_VmaRegion* f_Region = &fp_Space->Regions[lv_Index];
+
+        if (f_Region->IsAllocated)
+        {
+            VioletVmm_UnmapRange(fp_Space, f_Region->Base, f_Region->PageCount, true);
+            f_Region->IsAllocated = false;
+        }
+    }
+
+    /*
+        free the page table pages themselves (PTs, PDs, PDPTs)
+        walk only the lower half (indices 0-255) — the upper half
+        is shared kernel mappings we must not free
+    */
+    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysAddr);
+
+    for (size_t lv_Pml4Idx = 0; lv_Pml4Idx < 256; lv_Pml4Idx++)
+    {
+        if (not (f_Pml4[lv_Pml4Idx] & VMM_FLAG_PRESENT)) 
+        { 
+            continue; 
+        }
+
+        uint64_t* f_Pdpt     = PhysToTable(f_Pml4[lv_Pml4Idx] & VMM_PHYSICAL_ADDRESS_MASK);
+        phys_addr_t f_PdptPhys = (phys_addr_t)(f_Pml4[lv_Pml4Idx] & VMM_PHYSICAL_ADDRESS_MASK);
+
+        for (size_t lv_PdptIdx = 0; lv_PdptIdx < 512; lv_PdptIdx++)
+        {
+            if (not (f_Pdpt[lv_PdptIdx] & VMM_FLAG_PRESENT)) 
+            { 
+                continue; 
+            }
+
+            uint64_t* f_Pd      = PhysToTable(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
+            phys_addr_t f_PdPhys = (phys_addr_t)(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
+
+            for (size_t lv_PdIdx = 0; lv_PdIdx < 512; lv_PdIdx++)
+            {
+                if (not (f_Pd[lv_PdIdx] & VMM_FLAG_PRESENT)) 
+                { 
+                    continue; 
+                }
+
+                if (f_Pd[lv_PdIdx] & VMM_FLAG_HUGE) 
+                { 
+                    continue; /* huge page, no PT to free */ 
+                }
+
+                VioletPmm_FreePage((phys_addr_t)(f_Pd[lv_PdIdx] & VMM_PHYSICAL_ADDRESS_MASK));
+            }
+
+            VioletPmm_FreePage(f_PdPhys);
+        }
+
+        VioletPmm_FreePage(f_PdptPhys);
+    }
+
+    /* free the PML4 itself */
+    VioletPmm_FreePage(fp_Space->Pml4PhysAddr);
+
+    /* return the pool slot */
+    size_t f_SlotIndex = (size_t)(fp_Space - s_AddressSpacePool);
+    s_AddressSpacePoolUsed[f_SlotIndex] = false;
+}
+
+/*============================================================
+    VioletVmm_SwitchAddressSpace
+==============================================================*/
+
+void 
+    VioletVmm_SwitchAddressSpace(const VioletVmm_AddressSpace* fp_Space)
+{
+    VIOLET_PANIC_IF(fp_Space == nullptr, "VioletVmm_SwitchAddressSpace: null space");
+
+    VioletArch_LoadPageTable(fp_Space->Pml4PhysAddr);
+}
+
+/*============================================================
+    VioletVmm_GetKernelSpace
+==============================================================*/
+
+VioletVmm_AddressSpace* 
+    VioletVmm_GetKernelSpace(void)
+{
+    return &s_KernelAddressSpace;
+}
+
+/*============================================================
+    VioletVmm_Init
+==============================================================*/
+
+void 
+    VioletVmm_Init
+    (
+        const VioletBoot_Info* fp_BootInfo
+    )
+{
+    VIOLET_PANIC_IF(fp_BootInfo == nullptr, "VioletVmm_Init: null boot info");
+
+    /*
+        read the current CR3 — this is the bootloader's PML4
+        we take ownership of it as the kernel address space
+    */
+    phys_addr_t f_CurrentPml4 = VioletArch_ReadPageTable();
+
+    s_KernelAddressSpace.Pml4PhysAddr = f_CurrentPml4;
+    s_KernelAddressSpace.IsKernel     = true;
+    s_KernelAddressSpace.RegionCount  = 0;
+
+    memset_as_u8(s_KernelAddressSpace.Regions, 0, sizeof(s_KernelAddressSpace.Regions));
+
+    /*
+        build the direct physical map
+        map every non-MMIO physical page at VIOLET_DIRECT_MAP_BASE + physAddr
+        this is what makes PhysToTable() work — after this call any
+        physical address is accessible as DIRECT_MAP_BASE + physAddr
+
+        we use 2MB huge pages for the direct map where possible — much
+        faster to set up and covers 512x more address space per PT entry
+        512 huge pages cover 1GB, so we stay at the PD level when aligned
+
+        the direct map must be built carefully:
+        at this point PhysToTable() is partially functional —
+        the bootloader identity-mapped low physical memory, so low physical
+        addresses ARE accessible. we rely on this to set up the higher entries.
+
+        walk the memory map to know which physical ranges have actual RAM
+    */
+
+    const VioletBoot_MemoryMap* f_Map = &fp_BootInfo->MemoryMap;
+
+    for (size_t lv_Index = 0; lv_Index < f_Map->DescriptorCount; lv_Index++)
+    {
+        VioletBoot_MemoryDescriptor* f_Desc = (VioletBoot_MemoryDescriptor*)
+            (f_Map->Descriptors + lv_Index * f_Map->DescriptorSize);
+
+        /*
+            skip MMIO — we don't want the direct map covering device registers
+            MMIO gets explicitly mapped when a driver needs it
+        */
+        if (f_Desc->Type == 11 or /* EfiMemoryMappedIO */
+            f_Desc->Type == 12)   /* EfiMemoryMappedIOPortSpace */
+        {
+            continue;
+        }
+
+        phys_addr_t f_RegionPhys  = (phys_addr_t)f_Desc->PhysicalStart;
+        virt_addr_t f_RegionVirt  = VIOLET_DIRECT_MAP_BASE + f_RegionPhys;
+        size_t      f_RegionPages = (size_t)f_Desc->NumberOfPages;
+
+        /*
+            try to use 2MB huge pages where the region is 2MB aligned
+            fall back to 4KB pages for the unaligned head and tail
+        */
+        size_t lv_Page = 0;
+
+        /* 4KB pages for unaligned head */
+        while (lv_Page < f_RegionPages and ((f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE) & 0x1FFFFF) != 0)
+        {
+            phys_addr_t f_Phys = f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE;
+            virt_addr_t f_Virt = f_RegionVirt + lv_Page * VIOLET_PAGE_SIZE;
+
+            VioletVmm_MapPage(&s_KernelAddressSpace, f_Virt, f_Phys, VMM_FLAGS_KERNEL_DATA);
+            lv_Page++;
+        }
+
+        /* 2MB huge pages for the aligned body */
+        while (lv_Page + 512 <= f_RegionPages)
+        {
+            phys_addr_t f_Phys = f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE;
+            virt_addr_t f_Virt = f_RegionVirt + lv_Page * VIOLET_PAGE_SIZE;
+
+            /*
+                for huge pages we write directly at the PD level
+                the PD entry with VMM_FLAG_HUGE set maps 2MB directly
+                no PT needed
+            */
+            phys_addr_t f_PdptPhys = GetOrCreateNextTable(f_CurrentPml4, Pml4Index(f_Virt), 0);
+            phys_addr_t f_PdPhys   = GetOrCreateNextTable(f_PdptPhys, PdptIndex(f_Virt), 0);
+            uint64_t*   f_Pd       = PhysToTable(f_PdPhys);
+
+            f_Pd[PdIndex(f_Virt)] = f_Phys | VMM_FLAGS_KERNEL_DATA | VMM_FLAG_HUGE;
+
+            lv_Page += 512;
+        }
+
+        /* 4KB pages for unaligned tail */
+        while (lv_Page < f_RegionPages)
+        {
+            phys_addr_t f_Phys = f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE;
+            virt_addr_t f_Virt = f_RegionVirt + lv_Page * VIOLET_PAGE_SIZE;
+
+            VioletVmm_MapPage(&s_KernelAddressSpace, f_Virt, f_Phys, VMM_FLAGS_KERNEL_DATA);
+            lv_Page++;
+        }
+    }
+
+    /*
+        also map the framebuffer in the direct map
+        it's MMIO so we skipped it above, but the kernel console needs it
+    */
+    phys_addr_t f_FbPhys  = (phys_addr_t)fp_BootInfo->FrameBuffer.FrameBufferBase;
+    size_t      f_FbBytes = (size_t)fp_BootInfo->FrameBuffer.Height * fp_BootInfo->FrameBuffer.PixelsPerScanLine * 4;
+    size_t f_FbPages = (f_FbBytes + 0xFFF) / 0x1000;
+
+    for (size_t lv_Page = 0; lv_Page < f_FbPages; lv_Page++)
+    {
+        phys_addr_t f_Phys = f_FbPhys + lv_Page * VIOLET_PAGE_SIZE;
+        VioletVmm_MapPage(&s_KernelAddressSpace, f_Phys, f_Phys, VMM_FLAGS_MMIO);
+    }
+
+    /*
+        reload CR3 to flush the TLB now that the direct map is populated
+        the CR3 value hasn't changed but the reload flushes all non-global entries
+    */
+
+    VioletArch_FlushTlb();
+}
