@@ -12,7 +12,7 @@
 
 ///VioletShared
 #include "shared/GeneralMacros.h"
-#include "shared/arch/MemoryWidthTypes.h"
+#include "shared/arch/Memory.h"
 
 ///VioletKernel
 #include "kernel/VioletPanic.h"
@@ -139,7 +139,7 @@ void
 {
     VIOLET_PANIC_IF(fp_BootInfo == nullptr, "nullptr to boot info was passed ;w;");
 
-    singleton_Pmm.Bitmap          = (size_t*)fp_BootInfo->BitmapPhysicalAddress;
+    singleton_Pmm.Bitmap          = (size_t*)(VIOLET_DIRECT_MAP_BASE + fp_BootInfo->BitmapPhysicalAddress);
     singleton_Pmm.TotalPages      = fp_BootInfo->TotalPageCount;
     singleton_Pmm.FreePages       = 0;
     singleton_Pmm.LastSearchIndex = 0;

@@ -7,12 +7,12 @@ ENTRY(KernelMain)
     LMA: where the bootloader physically loads it in RAM
 
     the bootloader reads p_paddr from each PT_LOAD program header to know
-    where to copy each segment. after ExitBootServices the bootloader sets
-    up page tables mapping VMA -> LMA before jumping to KernelMain.
+    where to copy each segment. Before ExitBootServices the bootloader needs to
+    setup page tables mapping VMA -> LMA before jumping to KernelMain.
 
     0xFFFFFFFF80000000: standard higher-half kernel VMA, top 2GB of address space
                         required by -mcmodel=kernel
-    0x200000:           2MB physical; safely above legacy BIOS/UEFI reserved region.
+    0x200000:           2MB physical; safely above legacy BIOS/UEFI reserved region;
                         This approach should be fine for the computers we wanna run on uwu
 */
 
@@ -69,7 +69,7 @@ SECTIONS
         so it doesnt hand those pages out as free memory
     */
     VioletKernelEnd = ALIGN(4096);
-    VioletKernelPhysicalEnd = VioletKernelEnd - 0xFFFFFFFF80000000 + 0x200000;
+    VioletKernelPhysicalEnd = VioletKernelEnd - KERNEL_VMA + KERNEL_LMA;
 
     /*
         clang emits these even with -ffreestanding so we needa strip them

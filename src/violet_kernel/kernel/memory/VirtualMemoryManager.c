@@ -21,6 +21,34 @@
 ///CSTD
 #include <iso646.h>
 
+//TEMPORARY
+#include "shared/gop/GopConsole.h"
+#include "shared/arch/Sleep.h"
+#include "shared/utils/StringConversion.h"
+
+/*============================================================
+    UEFI memory type constants
+    mirrored here so we don't need UEFI headers in the kernel           IM JUST GONNA COPY PASTE IT HERE CAUSE WHATEVER UWU they're macros anyways
+    values are from the UEFI spec section 7.2, table 7.6 (2.11)
+==============================================================*/
+
+#define EFI_RESERVED_MEMORY_TYPE        0
+#define EFI_LOADER_CODE                 1
+#define EFI_LOADER_DATA                 2
+#define EFI_BOOT_SERVICES_CODE          3
+#define EFI_BOOT_SERVICES_DATA          4
+#define EFI_RUNTIME_SERVICES_CODE       5
+#define EFI_RUNTIME_SERVICES_DATA       6
+#define EFI_CONVENTIONAL_MEMORY         7
+#define EFI_UNUSABLE_MEMORY             8
+#define EFI_ACPI_RECLAIM_MEMORY         9
+#define EFI_ACPI_MEMORY_NVS             10
+#define EFI_MEMORY_MAPPED_IO            11
+#define EFI_MEMORY_MAPPED_IO_PORT_SPACE 12
+#define EFI_PAL_CODE                    13
+#define EFI_PERSISTENT_MEMORY           14
+#define EFI_UNACCEPTED_MEMORY_TYPE      15
+
 /*============================================================
     kernel address space — one global instance in BSS
     the bootloader's PML4 becomes this after VioletVmm_Init
@@ -182,9 +210,9 @@ bool
         uint64_t                fp_Flags
     )
 {
-    VIOLET_PANIC_IF(fp_Space == nullptr, "null address space was passed ;w;");
-    VIOLET_PANIC_IF(fp_VirtualAddress & 0xFFF, "virtual address not page aligned >:^(");
-    VIOLET_PANIC_IF(fp_PhysicalAddress & 0xFFF, "physical address not page aligned >:^(");
+    VIOLET_PANIC_IF(fp_Space == nullptr,                         "nullptr reference to vmm address space was passed ;w;");
+    VIOLET_PANIC_IF(fp_VirtualAddress &  (VIOLET_PAGE_SIZE - 1), "virtual address not page aligned >:^(");
+    VIOLET_PANIC_IF(fp_PhysicalAddress & (VIOLET_PAGE_SIZE - 1), "physical address not page aligned >:^(");
 
     /*
         walk down the 4 levels of the page table tree
@@ -194,7 +222,7 @@ bool
     */
     uint64_t f_IntermediateFlags = (fp_Flags & VMM_FLAG_USER) ? VMM_FLAG_USER : 0;
 
-    phys_addr_t f_Pdpt = GetOrCreateNextTable(fp_Space->Pml4PhysAddr, Pml4Index(fp_VirtualAddress), f_IntermediateFlags);
+    phys_addr_t f_Pdpt = GetOrCreateNextTable(fp_Space->Pml4PhysicalAddress, Pml4Index(fp_VirtualAddress), f_IntermediateFlags);
 
     if (f_Pdpt == 0) 
     { 
@@ -254,7 +282,7 @@ void
         return;
     }
 
-    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysAddr);
+    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysicalAddress);
     uint64_t  f_Pml4Entry = f_Pml4[Pml4Index(fp_VirtualAddress)];
 
     if (not (f_Pml4Entry & VMM_FLAG_PRESENT)) 
@@ -370,7 +398,7 @@ phys_addr_t
         return 0; 
     }
 
-    uint64_t* f_Pml4      = PhysToTable(fp_Space->Pml4PhysAddr);
+    uint64_t* f_Pml4      = PhysToTable(fp_Space->Pml4PhysicalAddress);
     uint64_t  f_Pml4Entry = f_Pml4[Pml4Index(fp_VirtAddr)];
 
     if (not (f_Pml4Entry & VMM_FLAG_PRESENT)) 
@@ -678,7 +706,7 @@ VioletVmm_AddressSpace*
         return nullptr;
     }
 
-    f_Space->Pml4PhysAddr = f_Pml4;
+    f_Space->Pml4PhysicalAddress = f_Pml4;
     f_Space->IsKernel     = false;
 
     /*
@@ -689,7 +717,7 @@ VioletVmm_AddressSpace*
         this is the standard higher-half kernel design
     */
     uint64_t* f_NewPml4    = PhysToTable(f_Pml4);
-    uint64_t* f_KernelPml4 = PhysToTable(s_KernelAddressSpace.Pml4PhysAddr);
+    uint64_t* f_KernelPml4 = PhysToTable(s_KernelAddressSpace.Pml4PhysicalAddress);
 
     for (size_t lv_Index = 256; lv_Index < 512; lv_Index++)
     {
@@ -706,8 +734,8 @@ VioletVmm_AddressSpace*
 void 
     VioletVmm_DestroyAddressSpace(VioletVmm_AddressSpace* fp_Space)
 {
-    VIOLET_PANIC_IF(fp_Space == nullptr, "VioletVmm_DestroyAddressSpace: null space");
-    VIOLET_PANIC_IF(fp_Space->IsKernel, "VioletVmm_DestroyAddressSpace: cannot destroy kernel space");
+    VIOLET_PANIC_IF(fp_Space == nullptr, "[INTERNAL ERROR]: passed nullptr reference to vmm address space ;w;");
+    VIOLET_PANIC_IF(fp_Space->IsKernel,  "[INTERNAL ERROR]: tried to destroy kernel space!");
 
     /* free all tracked user-space allocations */
     for (size_t lv_Index = 0; lv_Index < VMM_MAX_REGIONS_PER_SPACE; lv_Index++)
@@ -726,7 +754,7 @@ void
         walk only the lower half (indices 0-255) — the upper half
         is shared kernel mappings we must not free
     */
-    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysAddr);
+    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysicalAddress);
 
     for (size_t lv_Pml4Idx = 0; lv_Pml4Idx < 256; lv_Pml4Idx++)
     {
@@ -745,7 +773,7 @@ void
                 continue; 
             }
 
-            uint64_t* f_Pd      = PhysToTable(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
+            uint64_t* f_Pd       = PhysToTable(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
             phys_addr_t f_PdPhys = (phys_addr_t)(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
 
             for (size_t lv_PdIdx = 0; lv_PdIdx < 512; lv_PdIdx++)
@@ -770,7 +798,7 @@ void
     }
 
     /* free the PML4 itself */
-    VioletPmm_FreePage(fp_Space->Pml4PhysAddr);
+    VioletPmm_FreePage(fp_Space->Pml4PhysicalAddress);
 
     /* return the pool slot */
     size_t f_SlotIndex = (size_t)(fp_Space - s_AddressSpacePool);
@@ -786,7 +814,7 @@ void
 {
     VIOLET_PANIC_IF(fp_Space == nullptr, "VioletVmm_SwitchAddressSpace: null space");
 
-    VioletArch_LoadPageTable(fp_Space->Pml4PhysAddr);
+    VioletArch_LoadPageTable(fp_Space->Pml4PhysicalAddress);
 }
 
 /*============================================================
@@ -809,124 +837,11 @@ void
         const VioletBoot_Info* fp_BootInfo
     )
 {
-    VIOLET_PANIC_IF(fp_BootInfo == nullptr, "VioletVmm_Init: null boot info");
+    VIOLET_PANIC_IF(fp_BootInfo == nullptr, "nullptr reference to boot info was passed ;w; water fuck man");
 
-    /*
-        read the current CR3 — this is the bootloader's PML4
-        we take ownership of it as the kernel address space
-    */
-    phys_addr_t f_CurrentPml4 = VioletArch_ReadPageTable();
-
-    s_KernelAddressSpace.Pml4PhysAddr = f_CurrentPml4;
-    s_KernelAddressSpace.IsKernel     = true;
-    s_KernelAddressSpace.RegionCount  = 0;
+    s_KernelAddressSpace.Pml4PhysicalAddress = VioletArch_ReadPageTable(); // take ownership of the bootloader's PML4 since the direct map was already built in the bootloader uwu
+    s_KernelAddressSpace.IsKernel    = true;
+    s_KernelAddressSpace.RegionCount = 0;
 
     memset_as_u8(s_KernelAddressSpace.Regions, 0, sizeof(s_KernelAddressSpace.Regions));
-
-    /*
-        build the direct physical map
-        map every non-MMIO physical page at VIOLET_DIRECT_MAP_BASE + physAddr
-        this is what makes PhysToTable() work — after this call any
-        physical address is accessible as DIRECT_MAP_BASE + physAddr
-
-        we use 2MB huge pages for the direct map where possible — much
-        faster to set up and covers 512x more address space per PT entry
-        512 huge pages cover 1GB, so we stay at the PD level when aligned
-
-        the direct map must be built carefully:
-        at this point PhysToTable() is partially functional —
-        the bootloader identity-mapped low physical memory, so low physical
-        addresses ARE accessible. we rely on this to set up the higher entries.
-
-        walk the memory map to know which physical ranges have actual RAM
-    */
-
-    const VioletBoot_MemoryMap* f_Map = &fp_BootInfo->MemoryMap;
-
-    for (size_t lv_Index = 0; lv_Index < f_Map->DescriptorCount; lv_Index++)
-    {
-        VioletBoot_MemoryDescriptor* f_Desc = (VioletBoot_MemoryDescriptor*)
-            (f_Map->Descriptors + lv_Index * f_Map->DescriptorSize);
-
-        /*
-            skip MMIO — we don't want the direct map covering device registers
-            MMIO gets explicitly mapped when a driver needs it
-        */
-        if (f_Desc->Type == 11 or /* EfiMemoryMappedIO */
-            f_Desc->Type == 12)   /* EfiMemoryMappedIOPortSpace */
-        {
-            continue;
-        }
-
-        phys_addr_t f_RegionPhys  = (phys_addr_t)f_Desc->PhysicalStart;
-        virt_addr_t f_RegionVirt  = VIOLET_DIRECT_MAP_BASE + f_RegionPhys;
-        size_t      f_RegionPages = (size_t)f_Desc->NumberOfPages;
-
-        /*
-            try to use 2MB huge pages where the region is 2MB aligned
-            fall back to 4KB pages for the unaligned head and tail
-        */
-        size_t lv_Page = 0;
-
-        /* 4KB pages for unaligned head */
-        while (lv_Page < f_RegionPages and ((f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE) & 0x1FFFFF) != 0)
-        {
-            phys_addr_t f_Phys = f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE;
-            virt_addr_t f_Virt = f_RegionVirt + lv_Page * VIOLET_PAGE_SIZE;
-
-            VioletVmm_MapPage(&s_KernelAddressSpace, f_Virt, f_Phys, VMM_FLAGS_KERNEL_DATA);
-            lv_Page++;
-        }
-
-        /* 2MB huge pages for the aligned body */
-        while (lv_Page + 512 <= f_RegionPages)
-        {
-            phys_addr_t f_Phys = f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE;
-            virt_addr_t f_Virt = f_RegionVirt + lv_Page * VIOLET_PAGE_SIZE;
-
-            /*
-                for huge pages we write directly at the PD level
-                the PD entry with VMM_FLAG_HUGE set maps 2MB directly
-                no PT needed
-            */
-            phys_addr_t f_PdptPhys = GetOrCreateNextTable(f_CurrentPml4, Pml4Index(f_Virt), 0);
-            phys_addr_t f_PdPhys   = GetOrCreateNextTable(f_PdptPhys, PdptIndex(f_Virt), 0);
-            uint64_t*   f_Pd       = PhysToTable(f_PdPhys);
-
-            f_Pd[PdIndex(f_Virt)] = f_Phys | VMM_FLAGS_KERNEL_DATA | VMM_FLAG_HUGE;
-
-            lv_Page += 512;
-        }
-
-        /* 4KB pages for unaligned tail */
-        while (lv_Page < f_RegionPages)
-        {
-            phys_addr_t f_Phys = f_RegionPhys + lv_Page * VIOLET_PAGE_SIZE;
-            virt_addr_t f_Virt = f_RegionVirt + lv_Page * VIOLET_PAGE_SIZE;
-
-            VioletVmm_MapPage(&s_KernelAddressSpace, f_Virt, f_Phys, VMM_FLAGS_KERNEL_DATA);
-            lv_Page++;
-        }
-    }
-
-    /*
-        also map the framebuffer in the direct map
-        it's MMIO so we skipped it above, but the kernel console needs it
-    */
-    phys_addr_t f_FbPhys  = (phys_addr_t)fp_BootInfo->FrameBuffer.FrameBufferBase;
-    size_t      f_FbBytes = (size_t)fp_BootInfo->FrameBuffer.Height * fp_BootInfo->FrameBuffer.PixelsPerScanLine * 4;
-    size_t f_FbPages = (f_FbBytes + 0xFFF) / 0x1000;
-
-    for (size_t lv_Page = 0; lv_Page < f_FbPages; lv_Page++)
-    {
-        phys_addr_t f_Phys = f_FbPhys + lv_Page * VIOLET_PAGE_SIZE;
-        VioletVmm_MapPage(&s_KernelAddressSpace, f_Phys, f_Phys, VMM_FLAGS_MMIO);
-    }
-
-    /*
-        reload CR3 to flush the TLB now that the direct map is populated
-        the CR3 value hasn't changed but the reload flushes all non-global entries
-    */
-
-    VioletArch_FlushTlb();
 }

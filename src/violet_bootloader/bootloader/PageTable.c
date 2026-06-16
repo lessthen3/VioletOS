@@ -11,7 +11,7 @@
 #include "PageTable.h"
 
 ///VioletShared
-#include "shared/arch/MemoryWidthTypes.h"
+#include "shared/arch/Memory.h"
 
 ///CSTD
 #include <iso646.h>
@@ -91,10 +91,10 @@ EFI_STATUS
     )
 {
     uint64_t* f_Pml4Table = (uint64_t*)fp_Pml4;
-    uint64_t  f_Pml4Idx   = Internal_Pml4Index(fp_VirtualAddress);
+    uint64_t  f_Pml4Index   = Internal_Pml4Index(fp_VirtualAddress);
 
     /* get or create PDPT */
-    if (not (f_Pml4Table[f_Pml4Idx] & PAGE_TABLE_ENTRY_PRESENT))
+    if (not (f_Pml4Table[f_Pml4Index] & PAGE_TABLE_ENTRY_PRESENT))
     {
         uint64_t f_NewPdpt = Internal_AllocateZeroedPage(fp_SystemTable);
 
@@ -103,14 +103,14 @@ EFI_STATUS
             return EFI_OUT_OF_RESOURCES;
         }
 
-        f_Pml4Table[f_Pml4Idx] = f_NewPdpt | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
+        f_Pml4Table[f_Pml4Index] = f_NewPdpt | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
     }
 
-    uint64_t* f_PdptTable = (uint64_t*)(f_Pml4Table[f_Pml4Idx] & ~(VIOLET_PAGE_SIZE - 1));
-    uint64_t  f_PdptIdx   = Internal_PdptIndex(fp_VirtualAddress);
+    uint64_t* f_PdptTable = (uint64_t*)(f_Pml4Table[f_Pml4Index] & ~(VIOLET_PAGE_SIZE - 1));
+    uint64_t  f_PdptIndex   = Internal_PdptIndex(fp_VirtualAddress);
 
     /* get or create PD */
-    if (not (f_PdptTable[f_PdptIdx] & PAGE_TABLE_ENTRY_PRESENT))
+    if (not (f_PdptTable[f_PdptIndex] & PAGE_TABLE_ENTRY_PRESENT))
     {
         uint64_t f_NewPd = Internal_AllocateZeroedPage(fp_SystemTable);
 
@@ -119,14 +119,14 @@ EFI_STATUS
             return EFI_OUT_OF_RESOURCES;
         }
 
-        f_PdptTable[f_PdptIdx] = f_NewPd | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
+        f_PdptTable[f_PdptIndex] = f_NewPd | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
     }
 
-    uint64_t* f_PdTable = (uint64_t*)(f_PdptTable[f_PdptIdx] & ~(VIOLET_PAGE_SIZE - 1));
-    uint64_t  f_PdIdx   = Internal_PdIndex(fp_VirtualAddress);
+    uint64_t* f_PdTable = (uint64_t*)(f_PdptTable[f_PdptIndex] & ~(VIOLET_PAGE_SIZE - 1));
+    uint64_t  f_PdIndex   = Internal_PdIndex(fp_VirtualAddress);
 
     /* get or create PT */
-    if (not (f_PdTable[f_PdIdx] & PAGE_TABLE_ENTRY_PRESENT))
+    if (not (f_PdTable[f_PdIndex] & PAGE_TABLE_ENTRY_PRESENT))
     {
         uint64_t f_NewPt = Internal_AllocateZeroedPage(fp_SystemTable);
 
@@ -135,14 +135,14 @@ EFI_STATUS
             return EFI_OUT_OF_RESOURCES;
         }
 
-        f_PdTable[f_PdIdx] = f_NewPt | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
+        f_PdTable[f_PdIndex] = f_NewPt | PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE;
     }
 
-    uint64_t* f_PtTable = (uint64_t*)(f_PdTable[f_PdIdx] & ~(VIOLET_PAGE_SIZE - 1));
-    uint64_t  f_PtIdx   = Internal_PtIndex(fp_VirtualAddress);
+    uint64_t* f_PtTable = (uint64_t*)(f_PdTable[f_PdIndex] & ~(VIOLET_PAGE_SIZE - 1));
+    uint64_t  f_PtIndex   = Internal_PtIndex(fp_VirtualAddress);
 
     /* write the final mapping */
-    f_PtTable[f_PtIdx] = fp_PhysicalAddress | fp_Flags;
+    f_PtTable[f_PtIndex] = fp_PhysicalAddress | fp_Flags;
 
     return EFI_SUCCESS;
 }
@@ -152,21 +152,26 @@ EFI_STATUS
 ==============================================================*/
 
 uint64_t 
-    Violet_SetupPageTables
+    Violet_InitializeRootPml4
     (
-        EFI_SYSTEM_TABLE* fp_SystemTable,
-        uint64_t          fp_KernelPhysicalBase,
-        uint64_t          fp_KernelVirtualBase,
-        uint64_t          fp_KernelPageCount
+        EFI_SYSTEM_TABLE* fp_SystemTable
     )
 {
-    /* allocate the root PML4 table */
-    uint64_t f_Pml4 = Internal_AllocateZeroedPage(fp_SystemTable);
+    uint64_t f_Pml4 = Internal_AllocateZeroedPage(fp_SystemTable); /* allocate the root PML4 table */
 
-    if (f_Pml4 == 0)
-    {
-        return 0;
-    }
+    return f_Pml4;
+}
+
+EFI_STATUS
+    VioletPageTable_SetupKernelPageTable
+    (
+        EFI_SYSTEM_TABLE*  fp_SystemTable,
+        uint64_t           fp_Pml4,
+        VioletLoadedKernel fp_LoadedKernel,
+        VioletGop_Console  fp_Console
+    )
+{
+    size_t f_KernelPageCount = (fp_LoadedKernel.LoadEnd - fp_LoadedKernel.LoadBase + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
 
     /*
         map each kernel page: VMA + offset → physical + offset
@@ -174,22 +179,23 @@ uint64_t
         for simplicity we map everything writable+executable here
         the kernel's VMM will rebuild proper permission maps later
     */
-    for (uint64_t lv_Page = 0; lv_Page < fp_KernelPageCount; lv_Page++)
-    {
-        uint64_t fv_VirtualAddress = fp_KernelVirtualBase + lv_Page*VIOLET_PAGE_SIZE;
-        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*VIOLET_PAGE_SIZE;
+    for (size_t lv_Page = 0; lv_Page < f_KernelPageCount; lv_Page++)
+    { 
+        virt_addr_t fv_VirtualAddress  = VIOLET_KERNEL_IMAGE_BASE + (lv_Page*VIOLET_PAGE_SIZE); // kernel VMA from linker script
+        phys_addr_t fv_PhysicalAddress = fp_LoadedKernel.LoadBase + (lv_Page*VIOLET_PAGE_SIZE);  // 0x200000
 
         EFI_STATUS fv_Status = Violet_MapPage
         (
             fp_SystemTable,
-            f_Pml4,
+            fp_Pml4,
             fv_VirtualAddress, fv_PhysicalAddress,
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
 
         if (EFI_ERROR(fv_Status))
         {
-            return 0;
+            VioletGopConsole_PrintLine(&fp_Console, "[BOOT FAILED]: failed to map pages required for virtual addressing of the kernel image");
+            return fv_Status;
         }
     }
 
@@ -201,23 +207,24 @@ uint64_t
         this map keeps the bootloader code accessible for the few instructions
         between loading CR3 and jumping to the kernel VMA
     */
-    for (uint64_t lv_Page = 0; lv_Page < fp_KernelPageCount; lv_Page++)
+    for (size_t lv_Page = 0; lv_Page < f_KernelPageCount; lv_Page++)
     {
-        uint64_t fv_PhysicalAddress = fp_KernelPhysicalBase + lv_Page*VIOLET_PAGE_SIZE;
+        phys_addr_t fv_PhysicalAddress = fp_LoadedKernel.LoadBase + (lv_Page*VIOLET_PAGE_SIZE);
 
         EFI_STATUS fv_Status = Violet_MapPage
         (
             fp_SystemTable,
-            f_Pml4,
+            fp_Pml4,
             fv_PhysicalAddress, fv_PhysicalAddress,  //identity mapped uwu
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
 
         if (EFI_ERROR(fv_Status))
         {
-            return 0;
+            VioletGopConsole_PrintLine(&fp_Console, "[BOOT FAILED]: failed to identity map the physical addresses of the kernel image ;w;");
+            return fv_Status;
         }
     }
 
-    return f_Pml4;
+    return EFI_SUCCESS;
 }

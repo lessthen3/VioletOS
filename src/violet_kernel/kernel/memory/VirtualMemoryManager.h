@@ -13,7 +13,7 @@
 
 ///VioletShared
 #include "shared/BootInfo.h"
-#include "shared/arch/MemoryWidthTypes.h"
+#include "shared/arch/Memory.h"
 #include "shared/GeneralMacros.h"
 
 ///VioletKernel
@@ -22,24 +22,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-
-/*============================================================
-    Virtual Address Space Layout
-
-    0x0000000000001000 — 0x00007FFFFFFFFFFF   user space (128TB)
-    0xFFFF800000000000 — 0xFFFFBFFFFFFFFFFF   direct physical map (64TB) -- every byte of physical RAM is accessible at DIRECT_MAP_BASE + phys_addr
-    0xFFFFFF8000000000 — 0xFFFFFFFFFFFFFFFF   kernel virtual space
-    0xFFFFFFFF80000000                        kernel image base (VMA in the linker script)
-==============================================================*/
-
-#define VIOLET_USER_SPACE_START       0x0000000000001000ULL
-#define VIOLET_USER_SPACE_END         0x00007FFFFFFFF000ULL
-
-#define VIOLET_DIRECT_MAP_BASE        0xFFFF800000000000ULL
-#define VIOLET_DIRECT_MAP_END         0xFFFFBFFFFFFFFFFFULL
-
-#define VIOLET_KERNEL_SPACE_START     0xFFFFFF8000000000ULL
-#define VIOLET_KERNEL_IMAGE_BASE      0xFFFFFFFF80000000ULL
 
 /*============================================================
     Page table entry flags
@@ -71,7 +53,7 @@
     to get the physical address of the next-level table
 ==============================================================*/
 
-#define VMM_PHYSICAL_ADDRESS_MASK     0x000FFFFFFFFFF000ULL
+constexpr phys_addr_t VMM_PHYSICAL_ADDRESS_MASK = (phys_addr_t)0x000FFFFFFFFFF000;
 
 /*============================================================
     VioletVmm_VmaRegion — one contiguous virtual memory allocation
@@ -101,7 +83,7 @@ typedef struct {
 ==============================================================*/
 
 typedef struct {
-    phys_addr_t          Pml4PhysAddr;
+    phys_addr_t          Pml4PhysicalAddress;
     VioletVmm_VmaRegion  Regions[VMM_MAX_REGIONS_PER_SPACE];
     size_t               RegionCount;
     bool                 IsKernel;

@@ -14,11 +14,11 @@
 ///UEFI
 #include <Uefi.h>
 
+///VioletBootloader
+#include "ElfLoader.h"
+
 ///CSTD
 #include <stdint.h>
-
-///VioletShared
-#include "shared/GeneralMacros.h"
 
 /*
     these bits are set in each entry regardless of which level it's at
@@ -42,12 +42,9 @@
     returns 0 on failure
 */
 uint64_t 
-    Violet_SetupPageTables
+    Violet_InitializeRootPml4
     (
-        EFI_SYSTEM_TABLE* fp_SystemTable,
-        uint64_t          fp_KernelPhysicalBase,
-        uint64_t          fp_KernelVirtualBase,
-        uint64_t          fp_KernelPageCount
+        EFI_SYSTEM_TABLE* fp_SystemTable
     );
 
 
@@ -59,6 +56,15 @@ EFI_STATUS
         uint64_t          fp_VirtualAddress,
         uint64_t          fp_PhysicalAddress,
         uint64_t          fp_Flags
+    );
+
+EFI_STATUS
+    VioletPageTable_SetupKernelPageTable
+    (
+        EFI_SYSTEM_TABLE* fp_SystemTable,
+        uint64_t          fp_Pml4,
+        VioletLoadedKernel fp_LoadedKernel,
+        VioletGop_Console  fp_Console
     );
 
 #endif /*VIOLET_BOOTLOADER_PAGE_TABLE_HG*/

@@ -9,6 +9,11 @@
  *         VioletOS is a free open source operating system
 ********************************************************************/
 #include "MemoryMap.h"
+
+///VioletShared
+#include "shared/arch/Memory.h"
+
+///CSTD
 #include <iso646.h>
 
 VioletMemoryMap 
@@ -72,14 +77,14 @@ UINTN
 
     for (UINTN lv_Index = 0; lv_Index < fp_MemoryMap->DescriptorCount; lv_Index++)
     {
-        EFI_MEMORY_DESCRIPTOR* f_Descriptor = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)fp_MemoryMap->Descriptors + lv_Index * fp_MemoryMap->DescriptorSize);
+        EFI_MEMORY_DESCRIPTOR* f_UefiDescriptor = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)fp_MemoryMap->Descriptors + (lv_Index * fp_MemoryMap->DescriptorSize));
 
         /*
             WHITELIST: Only look at descriptors that represent actual system RAM, since we only want to count real memory types
 
             we wanna skip things like MMIO because they can have huge physical addresses without any actual RAM backing them;
         */
-        switch (f_Descriptor->Type) 
+        switch (f_UefiDescriptor->Type) 
         {
             case EfiConventionalMemory:      // free usable RAM
             case EfiLoaderCode:              // violet bootloader binary code
@@ -98,7 +103,7 @@ UINTN
                 continue;
         }
 
-        UINTN f_RegionEnd = f_Descriptor->PhysicalStart + f_Descriptor->NumberOfPages*0x1000;
+        UINTN f_RegionEnd = f_UefiDescriptor->PhysicalStart + (f_UefiDescriptor->NumberOfPages*VIOLET_PAGE_SIZE);
 
         if (f_RegionEnd > f_HighestAddress)
         {

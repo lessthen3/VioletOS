@@ -15,10 +15,10 @@
 
 ///VioletShared
 #include "shared/BootInfo.h"
-#include "shared/gop/console/GopConsole.h"
+#include "shared/gop/GopConsole.h"
 #include "shared/utils/StringConversion.h"
 #include "shared/arch/Sleep.h"
-#include "shared/arch/MemoryWidthTypes.h"
+#include "shared/arch/Memory.h"
 
 ///VioletKernel
 #include "VioletPanic.h"
@@ -104,7 +104,7 @@ __attribute__((section(".text.boot")))
 
     //////////////////////////////////////////////////////////////////////////////// Random Testing Stuff ////////////////////////////////////////////////////////////////////////////////
 
-    // now deliberately overwrite the freed UEFI stack pages with 0xDEADBEEF
+    // now deliberately overwrite the freed UEFI stack pages with 0xBABECAFE
     // if we were still using them as a stack this would corrupt return addresses and triple fault
     // if this doesn't crash: stack switch worked, PMM free worked, we're clean
     uint32_t* f_OldStack      = (uint32_t*)fp_BootInfo->BootloaderStackBase;
@@ -112,11 +112,14 @@ __attribute__((section(".text.boot")))
 
     for (size_t lv_Index = 0; lv_Index < f_OldStackWords; lv_Index++)
     {
-        f_OldStack[lv_Index] = 0xDEADBEEF;
+        f_OldStack[lv_Index] = 0xBABECAFE;
     }
 
     VioletGopConsole_PrintLine(&f_VioletConsole, "UEFI stack trashed successfully, still alive 💜");
     VioletGopConsole_PrintLine(&f_VioletConsole, "BSS boot stack confirmed working");
+
+    VioletGopConsole_Print(&f_VioletConsole, "Value from BootInfo after axing stack: ");
+    VioletGopConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->BitmapPhysicalAddress));
 
     // VioletArch_SleepCycles(10'000'000'000);
 

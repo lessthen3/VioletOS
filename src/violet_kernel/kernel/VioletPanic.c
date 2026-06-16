@@ -11,7 +11,7 @@
 #include "VioletPanic.h"
 
 ///VioletShared
-#include "shared/gop/console/GopConsole.h"
+#include "shared/gop/GopConsole.h"
 #include "shared/arch/DisableInterrupts.h"
 
 ///CSTD

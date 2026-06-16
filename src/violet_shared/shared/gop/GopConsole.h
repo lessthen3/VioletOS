@@ -15,8 +15,8 @@
 
 typedef struct {
     const VioletGop_FrameBuffer* Framebuffer;
-    uint32_t                 CursorX;
-    uint32_t                 CursorY;
+    uint32_t                     CursorX;
+    uint32_t                     CursorY;
     VioletGop_Colour             ForegroundColour;
     VioletGop_Colour             BackgroundColour;
 } VioletGop_Console;

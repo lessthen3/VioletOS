@@ -11,7 +11,7 @@
 #ifndef VIOLET_SHARED_ARCH_PAGE_TABLE_OPERATIONS_HG
 #define VIOLET_SHARED_ARCH_PAGE_TABLE_OPERATIONS_HG
 
-#include "MemoryWidthTypes.h"
+#include "shared/arch/Memory.h"
 #include "shared/GeneralMacros.h"
 
 //cant tell if i like inline static or static inline better, i think static inline uwu
