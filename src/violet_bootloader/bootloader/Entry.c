@@ -209,16 +209,14 @@ EFI_STATUS EFIAPI
     }
 
     //////////////////////////////////////// Build the direct physical map ////////////////////////////////////////
-    // map ALL physical RAM at VIOLET_DIRECT_MAP_BASE so the kernel can access
-    // any physical address as (DIRECT_MAP_BASE + physAddr) without per-page mapping
+    // map ALL physical RAM at VIOLET_DIRECT_MAP_BASE in the upper half so the kernel can access
+    // any physical address as (VIOLET_DIRECT_MAP_BASE + phys_addr_t) without per-page mapping
     // this is what makes the PMM's physical addresses usable from kernel virtual space
 
-    uint64_t f_DirectMapPages = f_TotalPageCount; // total physical pages we found earlier
-
-    for (uint64_t lv_Page = 0; lv_Page < f_DirectMapPages; lv_Page++)
+    for (size_t lv_Page = 0; lv_Page < f_TotalPageCount; lv_Page++)
     {
-        uint64_t fv_PhysicalAddress = lv_Page * VIOLET_PAGE_SIZE;
-        uint64_t fv_VirtualAddress  = VIOLET_DIRECT_MAP_BASE + fv_PhysicalAddress;
+        phys_addr_t fv_PhysicalAddress = lv_Page * VIOLET_PAGE_SIZE;
+        virt_addr_t fv_VirtualAddress  = VIOLET_DIRECT_MAP_BASE + fv_PhysicalAddress;
 
         Violet_MapPage
         (
@@ -258,18 +256,18 @@ EFI_STATUS EFIAPI
         (VOID**)&f_UefiMainImage
     );
 
-    uint64_t f_BootloaderCodeBase = (uint64_t)f_UefiMainImage->ImageBase;
-    uint64_t f_BootloaderCodePageAmount = (f_UefiMainImage->ImageSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
+    phys_addr_t f_BootloaderCodeBase = (phys_addr_t)f_UefiMainImage->ImageBase;
+    size_t f_BootloaderCodePageAmount = (f_UefiMainImage->ImageSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
 
-    for (uint64_t lv_Page = 0; lv_Page < f_BootloaderCodePageAmount; lv_Page++)
+    for (size_t lv_Page = 0; lv_Page < f_BootloaderCodePageAmount; lv_Page++)
     {
-        uint64_t f_Address = f_BootloaderCodeBase + (lv_Page*VIOLET_PAGE_SIZE);
+        phys_addr_t f_PhysicalAddress = f_BootloaderCodeBase + (lv_Page*VIOLET_PAGE_SIZE);
 
         Violet_MapPage
         (
             fp_SystemTable, 
             f_Pml4, 
-            f_Address, f_Address, 
+            f_PhysicalAddress, f_PhysicalAddress, //identity mapped cause RIP will freak the fuck out otherwise when we load our own pml4 page table
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
     }
@@ -282,8 +280,8 @@ EFI_STATUS EFIAPI
     uint64_t f_UefiMainRegisterStackPointerValue;
     __asm__ volatile("mov %0, rsp" : "=r"(f_UefiMainRegisterStackPointerValue));
 
-    uint64_t f_BootLoaderStackBase       = 0;
-    uint64_t f_BootLoaderStackPageAmount = 0;
+    uint64_t f_BootLoaderStackBase     = 0;
+    size_t f_BootLoaderStackPageAmount = 0;
 
     /*
         essentially we loop through each UEFI memory descriptor because the memory region associated with UefiMain's stack frame will be there;
@@ -324,15 +322,15 @@ EFI_STATUS EFIAPI
         the spec guarantees at least 32 pages or 128 KiB but sometimes we can be given more, some mb's are more generous lovers >///<
     */
 
-    for (uint64_t lv_Page = 0; lv_Page < f_BootLoaderStackPageAmount; lv_Page++)
+    for (size_t lv_Page = 0; lv_Page < f_BootLoaderStackPageAmount; lv_Page++)
     {
-        uint64_t f_PhysicalAddress = f_BootLoaderStackBase + (lv_Page*VIOLET_PAGE_SIZE); // physical start from uefi maps the lower floor address, so we can grow up the stack uwu
+        phys_addr_t f_PhysicalAddress = f_BootLoaderStackBase + (lv_Page*VIOLET_PAGE_SIZE); // physical start from uefi maps the lower floor address, so we can grow up the stack uwu
 
         Violet_MapPage
         (
             fp_SystemTable, 
             f_Pml4, 
-            f_PhysicalAddress, f_PhysicalAddress, //identity map the uefi main stack
+            f_PhysicalAddress, f_PhysicalAddress, //identity map the uefi main stack as well cause we need it when we load our pml4 uwu
             PAGE_TABLE_ENTRY_PRESENT | PAGE_TABLE_ENTRY_WRITABLE
         );
     }
@@ -342,12 +340,12 @@ EFI_STATUS EFIAPI
 
     //////////////////////////////////////// identity map the framebuffer since it's MMIO ////////////////////////////////////////
 
-    uint64_t f_FrameBufferSize  = (uint64_t)f_ConsoleFrameBuffer.Height * f_ConsoleFrameBuffer.PixelsPerScanLine * 4; // size =  height * pixelsPerScanLine * 4 bytes, round up to pages
-    uint64_t f_RequiredFrameBufferPages = (f_FrameBufferSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
+    size_t f_FrameBufferSize  = (size_t)f_ConsoleFrameBuffer.Height * f_ConsoleFrameBuffer.PixelsPerScanLine * 4; // size =  height * pixelsPerScanLine * 4 bytes, round up to pages
+    size_t f_RequiredFrameBufferPages = (f_FrameBufferSize + (VIOLET_PAGE_SIZE - 1)) / VIOLET_PAGE_SIZE;
 
-    for (uint64_t lv_Page = 0; lv_Page < f_RequiredFrameBufferPages; lv_Page++)
+    for (size_t lv_Page = 0; lv_Page < f_RequiredFrameBufferPages; lv_Page++)
     {
-        uint64_t f_PhysicalAddress = f_ConsoleFrameBuffer.FrameBufferBase + (lv_Page*VIOLET_PAGE_SIZE);
+        phys_addr_t f_PhysicalAddress = f_ConsoleFrameBuffer.FrameBufferBase + (lv_Page*VIOLET_PAGE_SIZE);
 
         Violet_MapPage
         (
@@ -364,7 +362,7 @@ EFI_STATUS EFIAPI
         
     while (1) 
     {
-        f_MemoryMap.MapSize = f_RequiredMapPages * VIOLET_PAGE_SIZE; // Reset size to our 16 KiB max
+        f_MemoryMap.MapSize = f_RequiredMapPages * VIOLET_PAGE_SIZE; // owo
         
         fp_SystemTable->BootServices->GetMemoryMap
         (

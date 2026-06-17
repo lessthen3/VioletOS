@@ -121,6 +121,39 @@ __attribute__((section(".text.boot")))
     VioletGopConsole_Print(&f_VioletConsole, "Value from BootInfo after axing stack: ");
     VioletGopConsole_PrintLine(&f_VioletConsole, uintn_to_str(fp_BootInfo->BitmapPhysicalAddress));
 
+    //////////////////////////////////////// VMM Stress Test ////////////////////////////////////////
+
+    VioletVmm_AddressSpace* f_KernelSpace = VioletVmm_GetKernelSpace();
+
+    // allocate 4 pages
+    virt_addr_t f_TestVirt = VioletVmm_AllocatePages(f_KernelSpace, 4, VMM_FLAGS_KERNEL_DATA);
+    VIOLET_PANIC_IF(f_TestVirt == 0, "VMM stress: failed to allocate 4 pages");
+
+    // write a pattern across all 4 pages
+    uint32_t* f_TestMem = (uint32_t*)f_TestVirt;
+    for (size_t lv_Index = 0; lv_Index < (4 * VIOLET_PAGE_SIZE) / sizeof(uint32_t); lv_Index++)
+    {
+        f_TestMem[lv_Index] = (uint32_t)(0xC0FFEE00 + lv_Index);
+    }
+
+    // read it back and verify
+    for (size_t lv_Index = 0; lv_Index < (4 * VIOLET_PAGE_SIZE) / sizeof(uint32_t); lv_Index++)
+    {
+        VIOLET_PANIC_IF(f_TestMem[lv_Index] != (uint32_t)(0xC0FFEE00 + lv_Index), "VMM stress: memory corruption detected");
+    }
+
+    // free and verify the PMM got the pages back
+    uint64_t f_FreeBeforeAlloc = VioletPmm_GetFreePageCount();
+    VioletVmm_FreePages(f_KernelSpace, f_TestVirt);
+    VIOLET_PANIC_IF(VioletPmm_GetFreePageCount() != f_FreeBeforeAlloc + 4, "VMM stress: PMM free page count wrong after free");
+
+    // allocate again — should succeed immediately
+    virt_addr_t f_TestVirt2 = VioletVmm_AllocatePages(f_KernelSpace, 4, VMM_FLAGS_KERNEL_DATA);
+    VIOLET_PANIC_IF(f_TestVirt2 == 0, "VMM stress: failed to allocate again after free");
+    VioletVmm_FreePages(f_KernelSpace, f_TestVirt2);
+
+    VioletGopConsole_PrintLine(&f_VioletConsole, "VMM stress test passed 💜");
+
     // VioletArch_SleepCycles(10'000'000'000);
 
     // VIOLET_PANIC_IF(true, "Test UwU!");

@@ -234,7 +234,7 @@ void
     VioletPmm_AllocatePage
 ==============================================================*/
 
-size_t 
+uint64_t 
     VioletPmm_AllocatePage()
 {
     /*
@@ -252,10 +252,12 @@ size_t
                 singleton_Pmm.FreePages--;
                 singleton_Pmm.LastSearchIndex = lv_Index + 1;
 
-                /* zero the page before handing it out */
-                memset_as_u8((void*)(lv_Index * VIOLET_PAGE_SIZE), 0, VIOLET_PAGE_SIZE);
+                uint64_t f_PhysicalAddress = lv_Index * VIOLET_PAGE_SIZE;
 
-                return lv_Index * VIOLET_PAGE_SIZE;
+                /* zero the page before handing it out */
+                memset_as_u8((void*)(f_PhysicalAddress + VIOLET_DIRECT_MAP_BASE), 0, VIOLET_PAGE_SIZE);
+
+                return f_PhysicalAddress;
             }
         }
 

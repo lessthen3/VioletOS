@@ -21,11 +21,6 @@
 ///CSTD
 #include <iso646.h>
 
-//TEMPORARY
-#include "shared/gop/GopConsole.h"
-#include "shared/arch/Sleep.h"
-#include "shared/utils/StringConversion.h"
-
 /*============================================================
     UEFI memory type constants
     mirrored here so we don't need UEFI headers in the kernel           IM JUST GONNA COPY PASTE IT HERE CAUSE WHATEVER UWU they're macros anyways
@@ -109,9 +104,9 @@ static inline uint64_t
 ==============================================================*/
 
 static inline uint64_t* 
-    PhysToTable(phys_addr_t fp_PhysAddr)
+    Internal_PhysicalToVirtualAdress(phys_addr_t fp_PhysicalAddress)
 {
-    return (uint64_t*)(VIOLET_DIRECT_MAP_BASE + fp_PhysAddr);
+    return (uint64_t*)(VIOLET_DIRECT_MAP_BASE + fp_PhysicalAddress);
 }
 
 /*============================================================
@@ -124,18 +119,12 @@ static phys_addr_t
 {
     phys_addr_t f_PhysAddr = VioletPmm_AllocatePage();
 
-    VIOLET_PANIC_IF(f_PhysAddr == 0, "VMM ran out of physical memory for page table");
+    VIOLET_PANIC_IF(f_PhysAddr == 0, "VMM ran out of physical memory for page table"); //TODO: REPLACE ERROR SHOULDNT PANIC HERE JUST KILL PROCESS OWO OR SWAP
 
     /*
-        VioletPmm_AllocatePage returns a zeroed page — the PMM zeros it
-        using the direct map which is valid after the direct map is set up
-        however during VioletVmm_Init we're building the direct map itself
-        so the PMM's zero step might use an unmapped address
-
-        to be safe: zero it here via direct map after the direct map exists
-        the init path handles zeroing differently — see VioletVmm_Init
+        VioletPmm_AllocatePage returns a zeroed page the PMM zeros it using the direct map
     */
-    uint64_t* f_Table = PhysToTable(f_PhysAddr);
+    uint64_t* f_Table = Internal_PhysicalToVirtualAdress(f_PhysAddr);
 
     for (int lv_Index = 0; lv_Index < 512; lv_Index++)
     {
@@ -167,7 +156,7 @@ static phys_addr_t
         uint64_t    fp_Flags
     )
 {
-    uint64_t* f_Table = PhysToTable(fp_TablePhys);
+    uint64_t* f_Table = Internal_PhysicalToVirtualAdress(fp_TablePhys);
     uint64_t  f_Entry = f_Table[fp_Index];
 
     if (f_Entry & VMM_FLAG_PRESENT)
@@ -248,7 +237,7 @@ bool
         if an entry already exists here we overwrite it — this is intentional
         for remapping with different flags
     */
-    uint64_t* f_PtTable = PhysToTable(f_Pt);
+    uint64_t* f_PtTable = Internal_PhysicalToVirtualAdress(f_Pt);
     uint64_t  f_OldEntry = f_PtTable[PtIndex(fp_VirtualAddress)];
 
     f_PtTable[PtIndex(fp_VirtualAddress)] = fp_PhysicalAddress | fp_Flags;
@@ -282,7 +271,7 @@ void
         return;
     }
 
-    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysicalAddress);
+    uint64_t* f_Pml4 = Internal_PhysicalToVirtualAdress(fp_Space->Pml4PhysicalAddress);
     uint64_t  f_Pml4Entry = f_Pml4[Pml4Index(fp_VirtualAddress)];
 
     if (not (f_Pml4Entry & VMM_FLAG_PRESENT)) 
@@ -290,7 +279,7 @@ void
         return; 
     }
 
-    uint64_t* f_Pdpt = PhysToTable(f_Pml4Entry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t* f_Pdpt = Internal_PhysicalToVirtualAdress(f_Pml4Entry & VMM_PHYSICAL_ADDRESS_MASK);
     uint64_t  f_PdptEntry = f_Pdpt[PdptIndex(fp_VirtualAddress)];
 
     if (not (f_PdptEntry & VMM_FLAG_PRESENT)) 
@@ -298,7 +287,7 @@ void
         return; 
     }
 
-    uint64_t* f_Pd = PhysToTable(f_PdptEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t* f_Pd = Internal_PhysicalToVirtualAdress(f_PdptEntry & VMM_PHYSICAL_ADDRESS_MASK);
     uint64_t  f_PdEntry = f_Pd[PdIndex(fp_VirtualAddress)];
 
     if (not (f_PdEntry & VMM_FLAG_PRESENT)) 
@@ -306,7 +295,7 @@ void
         return; 
     }
 
-    uint64_t* f_Pt      = PhysToTable(f_PdEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t* f_Pt      = Internal_PhysicalToVirtualAdress(f_PdEntry & VMM_PHYSICAL_ADDRESS_MASK);
     uint64_t  f_PtEntry = f_Pt[PtIndex(fp_VirtualAddress)];
 
     if (not (f_PtEntry & VMM_FLAG_PRESENT)) 
@@ -349,8 +338,8 @@ bool
 
         if (not VioletVmm_MapPage(fp_Space, f_VirtAddr, f_PhysAddr, fp_Flags))
         {
-            /* partial failure; unmap what we mapped so far */
-            VioletVmm_UnmapRange(fp_Space, fp_VirtualBase, lv_Index, false);
+            VioletVmm_UnmapRange(fp_Space, fp_VirtualBase, lv_Index, false); /* partial failure; unmap what we mapped so far */
+            
             return false;
         }
     }
@@ -398,7 +387,7 @@ phys_addr_t
         return 0; 
     }
 
-    uint64_t* f_Pml4      = PhysToTable(fp_Space->Pml4PhysicalAddress);
+    uint64_t* f_Pml4      = Internal_PhysicalToVirtualAdress(fp_Space->Pml4PhysicalAddress);
     uint64_t  f_Pml4Entry = f_Pml4[Pml4Index(fp_VirtAddr)];
 
     if (not (f_Pml4Entry & VMM_FLAG_PRESENT)) 
@@ -406,7 +395,7 @@ phys_addr_t
         return 0; 
     }
 
-    uint64_t* f_Pdpt      = PhysToTable(f_Pml4Entry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t* f_Pdpt      = Internal_PhysicalToVirtualAdress(f_Pml4Entry & VMM_PHYSICAL_ADDRESS_MASK);
     uint64_t  f_PdptEntry = f_Pdpt[PdptIndex(fp_VirtAddr)];
 
     if (not (f_PdptEntry & VMM_FLAG_PRESENT)) 
@@ -414,7 +403,7 @@ phys_addr_t
         return 0; 
     }
 
-    uint64_t* f_Pd      = PhysToTable(f_PdptEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t* f_Pd      = Internal_PhysicalToVirtualAdress(f_PdptEntry & VMM_PHYSICAL_ADDRESS_MASK);
     uint64_t  f_PdEntry = f_Pd[PdIndex(fp_VirtAddr)];
 
     if (not (f_PdEntry & VMM_FLAG_PRESENT)) 
@@ -430,7 +419,7 @@ phys_addr_t
         return f_PageBase + (fp_VirtAddr & 0x1FFFFF);
     }
 
-    uint64_t* f_Pt      = PhysToTable(f_PdEntry & VMM_PHYSICAL_ADDRESS_MASK);
+    uint64_t* f_Pt      = Internal_PhysicalToVirtualAdress(f_PdEntry & VMM_PHYSICAL_ADDRESS_MASK);
     uint64_t  f_PtEntry = f_Pt[PtIndex(fp_VirtAddr)];
 
     if (not (f_PtEntry & VMM_FLAG_PRESENT)) 
@@ -506,7 +495,7 @@ static virt_addr_t
         if (f_Overlaps)
         {
             /* page-align the next candidate */
-            f_Candidate = (f_Candidate + 0xFFF) & ~(virt_addr_t)0xFFF;
+            f_Candidate = (f_Candidate + (VIOLET_PAGE_SIZE - 1)) & ~(virt_addr_t)(VIOLET_PAGE_SIZE - 1);
             continue;
         }
 
@@ -595,7 +584,7 @@ virt_addr_t
         uint64_t                fp_Flags
     )
 {
-    VIOLET_PANIC_IF(fp_Space == nullptr, "null address space was passed ;w;");
+    VIOLET_PANIC_IF(fp_Space == nullptr, "nullptr reference to address space was passed ;w;");
     VIOLET_PANIC_IF(fp_PageCount == 0, "tried to allocate 0 pages");
 
     virt_addr_t f_VirtBase = FindFreeVirtualRange(fp_Space, fp_PageCount, fp_Space->IsKernel);
@@ -716,8 +705,8 @@ VioletVmm_AddressSpace*
         kernel mappings without any per-space synchronisation
         this is the standard higher-half kernel design
     */
-    uint64_t* f_NewPml4    = PhysToTable(f_Pml4);
-    uint64_t* f_KernelPml4 = PhysToTable(s_KernelAddressSpace.Pml4PhysicalAddress);
+    uint64_t* f_NewPml4    = Internal_PhysicalToVirtualAdress(f_Pml4);
+    uint64_t* f_KernelPml4 = Internal_PhysicalToVirtualAdress(s_KernelAddressSpace.Pml4PhysicalAddress);
 
     for (size_t lv_Index = 256; lv_Index < 512; lv_Index++)
     {
@@ -754,7 +743,7 @@ void
         walk only the lower half (indices 0-255) — the upper half
         is shared kernel mappings we must not free
     */
-    uint64_t* f_Pml4 = PhysToTable(fp_Space->Pml4PhysicalAddress);
+    uint64_t* f_Pml4 = Internal_PhysicalToVirtualAdress(fp_Space->Pml4PhysicalAddress);
 
     for (size_t lv_Pml4Idx = 0; lv_Pml4Idx < 256; lv_Pml4Idx++)
     {
@@ -763,7 +752,7 @@ void
             continue; 
         }
 
-        uint64_t* f_Pdpt     = PhysToTable(f_Pml4[lv_Pml4Idx] & VMM_PHYSICAL_ADDRESS_MASK);
+        uint64_t* f_Pdpt     = Internal_PhysicalToVirtualAdress(f_Pml4[lv_Pml4Idx] & VMM_PHYSICAL_ADDRESS_MASK);
         phys_addr_t f_PdptPhys = (phys_addr_t)(f_Pml4[lv_Pml4Idx] & VMM_PHYSICAL_ADDRESS_MASK);
 
         for (size_t lv_PdptIdx = 0; lv_PdptIdx < 512; lv_PdptIdx++)
@@ -773,7 +762,7 @@ void
                 continue; 
             }
 
-            uint64_t* f_Pd       = PhysToTable(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
+            uint64_t* f_Pd       = Internal_PhysicalToVirtualAdress(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
             phys_addr_t f_PdPhys = (phys_addr_t)(f_Pdpt[lv_PdptIdx] & VMM_PHYSICAL_ADDRESS_MASK);
 
             for (size_t lv_PdIdx = 0; lv_PdIdx < 512; lv_PdIdx++)
