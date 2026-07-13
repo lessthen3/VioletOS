@@ -67,7 +67,7 @@ extern uint8_t VioletKernelPhysicalEnd[];
     /*
         CHECK!: accept BootInfo* parameter from bootloader once Entry.c is written
         CHECK!: init PMM from memory map
-        TODO: init VMM
+        CHECK!: init VMM
         TODO: init GDT/IDT
         TODO: init LAPIC
         TODO: spawn root task

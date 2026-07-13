@@ -8,11 +8,10 @@
  *
  *         VioletOS is a free open source operating system
 ********************************************************************/
-#ifndef VIOLET_SHARED_ARCH_MEMORY_WIDTH_TYPES_HG
-#define VIOLET_SHARED_ARCH_MEMORY_WIDTH_TYPES_HG
+#ifndef VIOLET_SHARED_ARCH_MEMORY_HG
+#define VIOLET_SHARED_ARCH_MEMORY_HG
 
 #include <stdint.h>
-#include <stddef.h>
 
 typedef uint64_t    phys_addr_t; // Physical addresses are always 64-bit (handles x86_64 and 32-bit PAE)
 typedef uintptr_t   virt_addr_t; // Virtual addresses match the native CPU register width
@@ -40,4 +39,4 @@ constexpr virt_addr_t VIOLET_DIRECT_MAP_END      = (virt_addr_t)0xFFFFBFFFFFFFFF
 constexpr virt_addr_t VIOLET_KERNEL_SPACE_START  = (virt_addr_t)0xFFFFFF8000000000;
 constexpr virt_addr_t VIOLET_KERNEL_IMAGE_BASE   = (virt_addr_t)0xFFFFFFFF80000000;
 
-#endif /*VIOLET_SHARED_ARCH_MEMORY_WIDTH_TYPES_HG*/
+#endif /*VIOLET_SHARED_ARCH_MEMORY_HG*/
